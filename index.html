@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Character Poser</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <h1>Character Poser</h1>
+        <div id="loading">Loading character…</div>
+        <div id="controls" hidden>
+          <section>
+            <h2>Body Controls</h2>
+            <div id="bodymap"></div>
+          </section>
+          <section id="joint-section">
+            <h2>Selected: <span id="joint-name">none</span></h2>
+            <div class="btn-row">
+              <button id="btn-pin" disabled>Pin Position <kbd>P</kbd></button>
+              <button id="btn-lock" disabled>Lock Orientation <kbd>O</kbd></button>
+            </div>
+            <div class="btn-row">
+              <button id="btn-rotate" disabled>Rotate Tool <kbd>R</kbd></button>
+            </div>
+            <p class="hint">Drag a control point in any view to pose. Pinned points hold their position while the rest of the body solves.</p>
+          </section>
+          <section>
+            <h2>Views</h2>
+            <div class="btn-row wrap" id="view-buttons">
+              <button data-view="front">Front</button>
+              <button data-view="back">Back</button>
+              <button data-view="left">Left</button>
+              <button data-view="right">Right</button>
+              <button data-view="top">Top</button>
+            </div>
+          </section>
+          <section>
+            <div class="btn-row">
+              <button id="btn-reset">Reset Pose</button>
+            </div>
+          </section>
+        </div>
+      </aside>
+      <main id="viewport-area">
+        <canvas id="scene-canvas"></canvas>
+        <div id="panel-layer"></div>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
