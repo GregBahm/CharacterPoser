@@ -25,17 +25,8 @@
             <div class="btn-row">
               <button id="btn-rotate" disabled>Rotate Tool <kbd>R</kbd></button>
             </div>
+            <label class="check-row"><input type="checkbox" id="chk-affect-children" /> Affect children</label>
             <p class="hint">Drag a control point in any view to pose. Pinned points hold their position while the rest of the body solves.</p>
-          </section>
-          <section>
-            <h2>Views</h2>
-            <div class="btn-row wrap" id="view-buttons">
-              <button data-view="front">Front</button>
-              <button data-view="back">Back</button>
-              <button data-view="left">Left</button>
-              <button data-view="right">Right</button>
-              <button data-view="top">Top</button>
-            </div>
           </section>
           <section>
             <div class="btn-row">
@@ -46,7 +37,6 @@
       </aside>
       <main id="viewport-area">
         <canvas id="scene-canvas"></canvas>
-        <div id="panel-layer"></div>
       </main>
     </div>
     <script type="module" src="/src/main.ts"></script>

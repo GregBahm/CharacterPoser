@@ -1,13 +1,11 @@
 import * as THREE from 'three';
 import { CharacterRig } from './rig.ts';
 import { ControlPoints, Interaction } from './interaction.ts';
-import { PanelManager } from './panels.ts';
 import { AppState } from './state.ts';
 import { UI } from './ui.ts';
 
 const canvas = document.getElementById('scene-canvas') as HTMLCanvasElement;
 const viewportArea = document.getElementById('viewport-area') as HTMLElement;
-const panelLayer = document.getElementById('panel-layer') as HTMLElement;
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -68,11 +66,9 @@ async function init() {
   const points = new ControlPoints(rig, state);
   scene.add(points.group);
 
-  const panels = new PanelManager(panelLayer);
-  const interaction = new Interaction({ canvas, scene, mainCamera, panels, rig, state, points });
-  new UI(state, rig, { openView: (key) => panels.open(key) });
+  const interaction = new Interaction({ canvas, scene, mainCamera, rig, state, points });
+  new UI(state, rig);
 
-  for (const key of params.get('panels')?.split(',') ?? []) panels.open(key);
   if (params.has('testrotate')) {
     state.select('Head');
     state.setRotateMode(true);
@@ -109,8 +105,6 @@ async function init() {
     el.hidden = false;
   }
 
-  const canvasRect = () => canvas.getBoundingClientRect();
-
   renderer.setAnimationLoop(() => {
     interaction.update();
 
@@ -120,26 +114,6 @@ async function init() {
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, w, h);
     renderer.render(scene, mainCamera);
-
-    // Floating panels: scissored viewports over the same canvas.
-    if (panels.panels.length > 0) {
-      const base = canvasRect();
-      renderer.setScissorTest(true);
-      for (const panel of panels.panels) {
-        const rect = panel.content.getBoundingClientRect();
-        const x = rect.left - base.left;
-        const y = base.bottom - rect.bottom; // GL viewport origin is bottom-left
-        const pw = rect.width;
-        const ph = rect.height;
-        if (pw < 2 || ph < 2) continue;
-        panel.camera.aspect = pw / ph;
-        panel.camera.updateProjectionMatrix();
-        renderer.setViewport(x, y, pw, ph);
-        renderer.setScissor(x, y, pw, ph);
-        renderer.render(scene, panel.camera);
-      }
-      renderer.setScissorTest(false);
-    }
   });
 }
 

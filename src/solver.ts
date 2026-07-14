@@ -73,8 +73,8 @@ export const CONTROL_JOINTS: JointId[] = [
   'RightFoot',
 ];
 
-/** End joints that support the rotate tool. */
-export const ROTATABLE_JOINTS: JointId[] = ['Head', 'LeftHand', 'RightHand', 'LeftFoot', 'RightFoot'];
+/** Joints that support the rotate tool — every user-facing control point. */
+export const ROTATABLE_JOINTS: JointId[] = [...CONTROL_JOINTS];
 
 export interface SolverJoint {
   id: JointId;
@@ -177,6 +177,26 @@ export class FullBodySolver {
 
   get(id: JointId): SolverJoint {
     return this.joints[this.byId.get(id)!];
+  }
+
+  /**
+   * Rigidly rotate the descendant subtree of `id` about `id`'s position by the
+   * world-space quaternion `delta`. Pinned descendants (and everything below
+   * them) stay anchored so the rotation "inherits" only through free joints.
+   * Used by the rotate tool's "Affect children" mode.
+   */
+  rotateSubtree(id: JointId, delta: THREE.Quaternion) {
+    const root = this.get(id);
+    const pivot = root.pos;
+    const stack = [...root.children];
+    const tmp = new THREE.Vector3();
+    while (stack.length) {
+      const j = this.joints[stack.pop()!];
+      if (j.pinned) continue; // anchored: skip it and its subtree
+      tmp.subVectors(j.pos, pivot).applyQuaternion(delta);
+      j.pos.copy(pivot).add(tmp);
+      for (const c of j.children) stack.push(c);
+    }
   }
 
   setPinned(id: JointId, pinned: boolean) {

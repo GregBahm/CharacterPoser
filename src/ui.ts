@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CharacterRig } from './rig.ts';
 import { CONTROL_JOINTS, ROTATABLE_JOINTS, JointId } from './solver.ts';
-import { AppState, COLORS } from './state.ts';
+import { AppState, pointColor } from './state.ts';
 
 const JOINT_LABELS: Record<string, string> = {
   Hips: 'Hips',
@@ -65,9 +65,10 @@ export class UI {
   private btnPin = document.getElementById('btn-pin') as HTMLButtonElement;
   private btnLock = document.getElementById('btn-lock') as HTMLButtonElement;
   private btnRotate = document.getElementById('btn-rotate') as HTMLButtonElement;
+  private chkAffectChildren = document.getElementById('chk-affect-children') as HTMLInputElement;
   private jointName = document.getElementById('joint-name') as HTMLElement;
 
-  constructor(state: AppState, rig: CharacterRig, actions: { openView: (key: string) => void }) {
+  constructor(state: AppState, rig: CharacterRig) {
     this.state = state;
     this.rig = rig;
     this.buildBodyMap();
@@ -75,15 +76,12 @@ export class UI {
     this.btnPin.addEventListener('click', () => this.togglePin());
     this.btnLock.addEventListener('click', () => this.toggleLock());
     this.btnRotate.addEventListener('click', () => state.setRotateMode(!state.rotateMode));
+    this.chkAffectChildren.addEventListener('change', () => state.setAffectChildren(this.chkAffectChildren.checked));
     document.getElementById('btn-reset')!.addEventListener('click', () => {
       rig.resetPose();
       rig.solver.setPinned('LeftFoot', true);
       rig.solver.setPinned('RightFoot', true);
       state.emit();
-    });
-    document.getElementById('view-buttons')!.addEventListener('click', (e) => {
-      const key = (e.target as HTMLElement).dataset?.view;
-      if (key) actions.openView(key);
     });
 
     window.addEventListener('keydown', (e) => {
@@ -168,8 +166,9 @@ export class UI {
     const sel = this.state.selected;
     for (const [id, circle] of this.circles) {
       const pinned = this.rig.solver.get(id).pinned;
+      const locked = this.rig.orientOverrides.has(id);
       const selected = sel === id;
-      const color = selected && pinned ? COLORS.selectedPinned : selected ? COLORS.selected : pinned ? COLORS.pinned : COLORS.free;
+      const color = pointColor(selected, pinned, locked);
       circle.setAttribute('fill', `#${color.toString(16).padStart(6, '0')}`);
       circle.classList.toggle('selected', selected);
     }
@@ -181,5 +180,8 @@ export class UI {
     this.btnPin.classList.toggle('active', !!sel && this.rig.solver.get(sel).pinned);
     this.btnLock.classList.toggle('active', !!sel && this.rig.orientOverrides.has(sel));
     this.btnRotate.classList.toggle('active', this.state.rotateMode && !this.btnRotate.disabled);
+    const rotateUsable = this.state.rotateMode && !this.btnRotate.disabled;
+    this.chkAffectChildren.disabled = !rotateUsable;
+    this.chkAffectChildren.checked = this.state.affectChildren;
   }
 }

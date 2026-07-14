@@ -2,8 +2,7 @@ import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { CharacterRig } from './rig.ts';
 import { CONTROL_JOINTS, ROTATABLE_JOINTS, JointId } from './solver.ts';
-import { AppState, COLORS } from './state.ts';
-import { PanelManager } from './panels.ts';
+import { AppState, COLORS, pointColor } from './state.ts';
 
 /** Draggable control-point spheres drawn on top of the character. */
 export class ControlPoints {
@@ -35,17 +34,10 @@ export class ControlPoints {
     for (const [id, sphere] of this.spheres) {
       this.rig.getJointWorldPos(id, sphere.position);
       const pinned = this.rig.solver.get(id).pinned;
+      const locked = this.rig.orientOverrides.has(id);
       const selected = this.state.selected === id;
       const mat = sphere.material as THREE.MeshBasicMaterial;
-      mat.color.setHex(
-        selected && pinned
-          ? COLORS.selectedPinned
-          : selected
-            ? COLORS.selected
-            : pinned
-              ? COLORS.pinned
-              : COLORS.free,
-      );
+      mat.color.setHex(pointColor(selected, pinned, locked));
     }
   }
 
@@ -62,13 +54,12 @@ interface ActiveDrag {
 }
 
 /**
- * Pointer handling across the main view and all floating panels: picking,
- * IK dragging, and the rotate tool for head/hands/feet.
+ * Pointer handling for the main view: picking, IK dragging, and the rotate
+ * tool for head/hands/feet.
  */
 export class Interaction {
   private canvas: HTMLCanvasElement;
   private mainCamera: THREE.Camera;
-  private panels: PanelManager;
   private rig: CharacterRig;
   private state: AppState;
   private points: ControlPoints;
@@ -76,19 +67,18 @@ export class Interaction {
   private drag: ActiveDrag | null = null;
   private transform: TransformControls;
   private proxy = new THREE.Object3D();
+  private rotateLastQuat = new THREE.Quaternion();
 
   constructor(opts: {
     canvas: HTMLCanvasElement;
     scene: THREE.Scene;
     mainCamera: THREE.Camera;
-    panels: PanelManager;
     rig: CharacterRig;
     state: AppState;
     points: ControlPoints;
   }) {
     this.canvas = opts.canvas;
     this.mainCamera = opts.mainCamera;
-    this.panels = opts.panels;
     this.rig = opts.rig;
     this.state = opts.state;
     this.points = opts.points;
@@ -99,9 +89,22 @@ export class Interaction {
     this.transform.setSize(0.6);
     this.transform.enabled = false;
     opts.scene.add(this.transform.getHelper());
+    // Track the proxy orientation between events so "Affect children" can apply
+    // each incremental rotation to the descendant subtree's positions.
+    this.transform.addEventListener('dragging-changed', (e) => {
+      if ((e as unknown as { value: boolean }).value) this.rotateLastQuat.copy(this.proxy.quaternion);
+    });
     this.transform.addEventListener('objectChange', () => {
-      if (!this.state.selected) return;
-      this.rig.setOrientOverride(this.state.selected, this.proxy.quaternion);
+      const id = this.state.selected;
+      if (!id) return;
+      if (this.state.affectChildren) {
+        const delta = this.proxy.quaternion
+          .clone()
+          .multiply(this.rotateLastQuat.clone().invert());
+        this.rig.solver.rotateSubtree(id, delta);
+        this.rotateLastQuat.copy(this.proxy.quaternion);
+      }
+      this.rig.setOrientOverride(id, this.proxy.quaternion);
       this.rig.applyPose();
     });
 
@@ -145,9 +148,7 @@ export class Interaction {
     this.rig.getJointWorldQuat(id, this.proxy.quaternion);
   }
 
-  private viewUnder(e: PointerEvent): { camera: THREE.Camera; rect: DOMRect } {
-    const panel = this.panels.panelAt(e.clientX, e.clientY);
-    if (panel) return { camera: panel.camera, rect: panel.content.getBoundingClientRect() };
+  private viewUnder(): { camera: THREE.Camera; rect: DOMRect } {
     return { camera: this.mainCamera, rect: this.canvas.getBoundingClientRect() };
   }
 
@@ -159,7 +160,7 @@ export class Interaction {
   }
 
   private pickJoint(e: PointerEvent): { joint: JointId; point: THREE.Vector3; camera: THREE.Camera; rect: DOMRect } | null {
-    const { camera, rect } = this.viewUnder(e);
+    const { camera, rect } = this.viewUnder();
     this.raycaster.setFromCamera(this.ndc(e, rect), camera);
     // Control spheres ignore depth, so pick the sphere nearest the ray, not the first hit.
     let best: { joint: JointId; point: THREE.Vector3; dist: number } | null = null;
