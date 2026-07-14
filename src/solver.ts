@@ -81,7 +81,8 @@ export interface SolverJoint {
   index: number;
   parent: number;
   children: number[];
-  len: number; // bone length to parent (world units)
+  len: number; // natural bone length to parent (world units)
+  stretch: number; // squash/stretch multiplier on len (1 = natural). Persisted state.
   pos: THREE.Vector3; // current solved world position — this IS the pose state
   bindPos: THREE.Vector3;
   pinned: boolean;
@@ -150,6 +151,7 @@ export class FullBodySolver {
         parent,
         children: [],
         len: parent >= 0 ? bind.distanceTo(this.joints[parent].bindPos) : 0,
+        stretch: 1,
         pos: bind.clone(),
         bindPos: bind,
         pinned: false,
@@ -177,6 +179,84 @@ export class FullBodySolver {
 
   get(id: JointId): SolverJoint {
     return this.joints[this.byId.get(id)!];
+  }
+
+  /** Effective bone length after squash/stretch. */
+  private effLen(j: SolverJoint): number {
+    return j.len * j.stretch;
+  }
+
+  /** A stable anchor terminates a stretchy chain: pinned, the pelvis, or a rigid socket. */
+  private isAnchor(j: SolverJoint): boolean {
+    return j.pinned || j.id === 'Hips' || this.rigidMember.has(j.index);
+  }
+
+  /**
+   * Stretchy-mode helper. When the dragged joint `id` is moved to `target`, the
+   * bones that connect it to its nearest *held* neighbors (a pinned joint, the
+   * pelvis, or a rigid socket) squash/stretch so those neighbors stay put:
+   *  - neighbor farther than the bones can reach -> they stretch (factor > 1)
+   *  - neighbor closer than they can fold to      -> they squash  (factor < 1)
+   *  - neighbor within the normal range           -> factor resets to 1 (plain IK)
+   * This is applied both toward the parent (up) and down each child branch, so
+   * e.g. dragging a pinned elbow stretches both the upper-arm and the forearm
+   * to keep the shoulder and hand anchored. Factors persist (Regular mode keeps
+   * them).
+   */
+  applyStretch(id: JointId, target: THREE.Vector3) {
+    const dragged = this.get(id);
+    // Hips (the root) and rigid sockets have no stretchable chain of their own.
+    if (dragged.parent < 0 || dragged.id === 'Hips' || this.rigidMember.has(dragged.index)) return;
+
+    // Parent direction: bones from the dragged joint up to its nearest anchor.
+    const up: SolverJoint[] = [];
+    let node = dragged;
+    while (node.parent >= 0) {
+      up.push(node); // the bone node->parent may stretch
+      const parent = this.joints[node.parent];
+      if (this.isAnchor(parent)) break;
+      node = parent;
+    }
+    if (up.length && this.isAnchor(this.joints[up[up.length - 1].parent])) {
+      this.stretchChain(up, this.joints[up[up.length - 1].parent].pos, target);
+    }
+
+    // Child directions: down each branch to the nearest held (pinned) node.
+    for (const ci of dragged.children) {
+      const branch: SolverJoint[] = [];
+      let n = this.joints[ci];
+      let held: SolverJoint | null = null;
+      while (true) {
+        if (this.rigidMember.has(n.index)) break; // rigid socket: not stretchable
+        branch.push(n); // bone n->parent
+        if (n.pinned) {
+          held = n;
+          break;
+        }
+        if (n.children.length !== 1) break; // leaf or fork without a pin: nothing to anchor
+        n = this.joints[n.children[0]];
+      }
+      if (held) this.stretchChain(branch, target, held.pinPos);
+    }
+  }
+
+  /** Set a uniform squash/stretch factor on `chain` so it spans `endA`..`endB`. */
+  private stretchChain(chain: SolverJoint[], endA: THREE.Vector3, endB: THREE.Vector3) {
+    let natural = 0;
+    let maxLen = 0;
+    for (const j of chain) {
+      natural += j.len;
+      maxLen = Math.max(maxLen, j.len);
+    }
+    if (natural < 1e-6) return;
+    const foldMin = Math.max(0, 2 * maxLen - natural); // shortest a rigid chain can fold to
+    const d = endA.distanceTo(endB);
+
+    let factor = 1;
+    if (d > natural) factor = d / natural;
+    else if (foldMin > 1e-6 && d < foldMin) factor = d / foldMin;
+
+    for (const j of chain) j.stretch = factor;
   }
 
   /**
@@ -209,6 +289,7 @@ export class FullBodySolver {
     for (const j of this.joints) {
       j.pos.copy(j.bindPos);
       j.pinPos.copy(j.bindPos);
+      j.stretch = 1;
     }
   }
 
@@ -261,7 +342,7 @@ export class FullBodySolver {
         const child = this.joints[j.children[0]];
         const a = this.joints[j.parent].pos;
         const b = targets[child.index] ?? child.pos;
-        const full = j.len + child.len;
+        const full = this.effLen(j) + this.effLen(child);
         const d = a.distanceTo(b);
         if (d >= full * 0.995) continue;
         const needed = Math.sqrt(Math.max(0, full * full - d * d)) / 2;
@@ -273,7 +354,7 @@ export class FullBodySolver {
           perp = new THREE.Vector3().copy(a).addScaledVector(tmp, t).sub(j.pos).length();
         }
         if (perp < needed * 0.8) {
-          j.pos.addScaledVector(hint, Math.min((needed - perp) * 0.5, j.len * 0.3));
+          j.pos.addScaledVector(hint, Math.min((needed - perp) * 0.5, this.effLen(j) * 0.3));
         }
       }
 
@@ -295,7 +376,7 @@ export class FullBodySolver {
           const parRef = backPos[j.parent] ?? prev[j.parent];
           tmp.subVectors(parRef, p);
           if (tmp.lengthSq() < 1e-12) tmp.set(0, 1, 0);
-          tmp.normalize().multiplyScalar(j.len);
+          tmp.normalize().multiplyScalar(this.effLen(j));
           (proposals[j.parent] ??= []).push(p.clone().add(tmp));
         }
       }
@@ -345,7 +426,7 @@ export class FullBodySolver {
         const ref = backPos[i] ?? targets[i] ?? prev[i];
         tmp.subVectors(ref, par.pos);
         if (tmp.lengthSq() < 1e-12) tmp.set(0, -1, 0);
-        tmp.normalize().multiplyScalar(j.len);
+        tmp.normalize().multiplyScalar(this.effLen(j));
         j.pos.copy(par.pos).add(tmp);
       }
     }

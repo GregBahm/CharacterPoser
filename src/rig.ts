@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
-import { frameQuat, FullBodySolver, JOINT_DEFS, JointId } from './solver.ts';
+import { frameQuat, FullBodySolver, JOINT_DEFS, JointId, CONTROL_JOINTS } from './solver.ts';
 
 interface BoneBinding {
   id: JointId;
@@ -29,10 +29,28 @@ export class CharacterRig {
 
   private bindings = new Map<JointId, BoneBinding>();
   private childBindings = new Map<JointId, BoneBinding[]>();
+  /** Pin state saved when Stretchy Mode temporarily pins every control point. */
+  private savedPins: Map<JointId, boolean> | null = null;
 
   private constructor(root: THREE.Group, solver: FullBodySolver) {
     this.root = root;
     this.solver = solver;
+  }
+
+  /**
+   * Stretchy Mode temporarily pins every control point (so dragging one node
+   * stretches only its own segment). Turning it off restores the original pins.
+   */
+  setStretchyPinning(on: boolean) {
+    if (on) {
+      if (this.savedPins) return;
+      this.savedPins = new Map(this.solver.joints.map((j) => [j.id, j.pinned]));
+      for (const id of CONTROL_JOINTS) this.solver.setPinned(id, true);
+    } else {
+      if (!this.savedPins) return;
+      for (const [id, pinned] of this.savedPins) this.solver.setPinned(id, pinned);
+      this.savedPins = null;
+    }
   }
 
   static async load(url: string, applyInitialPose = true): Promise<CharacterRig> {
@@ -143,9 +161,11 @@ export class CharacterRig {
     const s0 = new THREE.Vector3();
     const s1 = new THREE.Vector3();
 
-    // Reset every mapped bone to its bind-local transform.
-    for (const b of this.bindings.values()) {
-      b.bone.position.copy(b.bindLocalPos);
+    // Reset every mapped bone to its bind-local transform, scaling the bone
+    // length by its solver joint's squash/stretch factor so the mesh actually
+    // grows or shrinks with the stretchy solve.
+    for (const [id, b] of this.bindings) {
+      b.bone.position.copy(b.bindLocalPos).multiplyScalar(this.solver.get(id).stretch);
       b.bone.quaternion.copy(b.bindLocalQuat);
     }
 

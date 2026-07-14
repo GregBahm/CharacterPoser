@@ -66,6 +66,7 @@ export class UI {
   private btnLock = document.getElementById('btn-lock') as HTMLButtonElement;
   private btnRotate = document.getElementById('btn-rotate') as HTMLButtonElement;
   private chkAffectChildren = document.getElementById('chk-affect-children') as HTMLInputElement;
+  private btnStretchy = document.getElementById('btn-stretchy') as HTMLButtonElement;
   private jointName = document.getElementById('joint-name') as HTMLElement;
 
   constructor(state: AppState, rig: CharacterRig) {
@@ -77,6 +78,11 @@ export class UI {
     this.btnLock.addEventListener('click', () => this.toggleLock());
     this.btnRotate.addEventListener('click', () => state.setRotateMode(!state.rotateMode));
     this.chkAffectChildren.addEventListener('change', () => state.setAffectChildren(this.chkAffectChildren.checked));
+    this.btnStretchy.addEventListener('click', () => {
+      const on = !state.stretchy;
+      rig.setStretchyPinning(on);
+      state.setStretchy(on);
+    });
     document.getElementById('btn-reset')!.addEventListener('click', () => {
       rig.resetPose();
       rig.solver.setPinned('LeftFoot', true);
@@ -183,5 +189,7 @@ export class UI {
     const rotateUsable = this.state.rotateMode && !this.btnRotate.disabled;
     this.chkAffectChildren.disabled = !rotateUsable;
     this.chkAffectChildren.checked = this.state.affectChildren;
+    this.btnStretchy.classList.toggle('active', this.state.stretchy);
+    this.btnStretchy.textContent = this.state.stretchy ? 'Stretchy Mode: On' : 'Stretchy Mode';
   }
 }

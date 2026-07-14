@@ -25,12 +25,13 @@ npm run build   # production build to dist/
 - **Pin Position** (`P`) locks the selected joint in place during solves. Feet start pinned so the body stays grounded.
 - **Lock Orientation** (`O`) holds the selected joint's world orientation through solves. Head and feet start locked (head stays upright, feet stay flat).
 - **Rotate Tool** (`R`) shows a rotation gizmo for any selected control point. Toggle **Affect children** to rotate the whole downstream limb as a rigid body (pinned joints stay anchored) instead of just the selected joint.
+- **Stretchy Mode** — two solve modes. In **Regular Mode** bones keep fixed lengths (out-of-reach drags pull the hips). In **Stretchy Mode** every control point is temporarily pinned, so dragging a point beyond its segment's reach stretches that segment's bones (and dragging it in past their fold minimum squashes them) while the rest of the body holds still. A ring around each manipulator grows/shrinks with the stretch factor. Turning Stretchy Mode off restores the original pin state, and any squash/stretch is preserved.
 
 ## Architecture
 
-- `src/solver.ts` — multi-chain FABRIK full-body solver over the 20-joint humanoid tree (HumanIK-style). Pinned joints act as standing targets, unreachable pulls drag the hips, pelvis/shoulder girdles are rigid bodies, and knees/elbows get bend-direction hints only when their chain is compressed.
-- `src/rig.ts` — FBX loading, Mixamo bone mapping, and conversion of solved joint positions back into bone rotations each frame (stateless from the bind pose, so no drift).
-- `src/interaction.ts` — control spheres, picking/dragging in the main view, rotate gizmo.
+- `src/solver.ts` — multi-chain FABRIK full-body solver over the 20-joint humanoid tree (HumanIK-style). Pinned joints act as standing targets, unreachable pulls drag the hips, pelvis/shoulder girdles are rigid bodies, and knees/elbows get bend-direction hints only when their chain is compressed. Each joint carries a persistent squash/stretch factor (`effLen = len * stretch`); `applyStretch` sets it for the dragged chain in Stretchy Mode.
+- `src/rig.ts` — FBX loading, Mixamo bone mapping, and conversion of solved joint positions back into bone rotations each frame (stateless from the bind pose, so no drift). Bone local lengths are scaled by each joint's stretch factor so the mesh grows/shrinks.
+- `src/interaction.ts` — control spheres, stretch-ring indicators, picking/dragging in the main view, rotate gizmo.
 - `src/ui.ts`, `src/state.ts`, `src/main.ts` — sidebar quick-select UI, shared selection state, scene bootstrap.
 
 Debug query params (e.g. `?testcrouch&front&debug`): `testdrag`/`testcrouch` apply scripted solves, `front` uses a front camera, `debug` prints solver positions, `testrotate` enables the rotate tool on the head.

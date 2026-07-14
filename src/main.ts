@@ -63,7 +63,7 @@ async function init() {
   scene.add(rig.root);
 
   const state = new AppState();
-  const points = new ControlPoints(rig, state);
+  const points = new ControlPoints(rig, state, mainCamera);
   scene.add(points.group);
 
   const interaction = new Interaction({ canvas, scene, mainCamera, rig, state, points });

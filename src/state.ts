@@ -21,6 +21,7 @@ export class AppState {
   selected: JointId | null = null;
   rotateMode = false;
   affectChildren = false;
+  stretchy = false;
 
   private listeners: (() => void)[] = [];
 
@@ -47,6 +48,12 @@ export class AppState {
   setAffectChildren(on: boolean) {
     if (this.affectChildren === on) return;
     this.affectChildren = on;
+    this.emit();
+  }
+
+  setStretchy(on: boolean) {
+    if (this.stretchy === on) return;
+    this.stretchy = on;
     this.emit();
   }
 }

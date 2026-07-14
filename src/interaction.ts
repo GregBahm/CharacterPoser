@@ -8,13 +8,19 @@ import { AppState, COLORS, pointColor } from './state.ts';
 export class ControlPoints {
   group = new THREE.Group();
   private spheres = new Map<JointId, THREE.Mesh>();
+  private rings = new Map<JointId, THREE.Mesh>();
   private rig: CharacterRig;
   private state: AppState;
+  private camera: THREE.Camera;
+  private static readonly RING_RADIUS = 0.05;
 
-  constructor(rig: CharacterRig, state: AppState) {
+  constructor(rig: CharacterRig, state: AppState, camera: THREE.Camera) {
     this.rig = rig;
     this.state = state;
+    this.camera = camera;
     const geo = new THREE.SphereGeometry(0.028, 20, 14);
+    // Unit-radius ring; scaled per frame by the joint's squash/stretch factor.
+    const ringGeo = new THREE.RingGeometry(ControlPoints.RING_RADIUS * 0.82, ControlPoints.RING_RADIUS, 32);
     for (const id of CONTROL_JOINTS) {
       const mat = new THREE.MeshBasicMaterial({
         color: COLORS.free,
@@ -27,6 +33,19 @@ export class ControlPoints {
       sphere.userData.jointId = id;
       this.spheres.set(id, sphere);
       this.group.add(sphere);
+
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0x39e0d0,
+        depthTest: false,
+        transparent: true,
+        opacity: 0.85,
+        side: THREE.DoubleSide,
+      });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.renderOrder = 9;
+      ring.visible = false;
+      this.rings.set(id, ring);
+      this.group.add(ring);
     }
   }
 
@@ -38,6 +57,18 @@ export class ControlPoints {
       const selected = this.state.selected === id;
       const mat = sphere.material as THREE.MeshBasicMaterial;
       mat.color.setHex(pointColor(selected, pinned, locked));
+
+      // Ring indicator: scales with squash/stretch and billboards to the camera.
+      const ring = this.rings.get(id)!;
+      const stretch = this.rig.solver.get(id).stretch;
+      if (Math.abs(stretch - 1) > 0.02) {
+        ring.visible = true;
+        ring.position.copy(sphere.position);
+        ring.scale.setScalar(stretch);
+        ring.quaternion.copy(this.camera.quaternion);
+      } else {
+        ring.visible = false;
+      }
     }
   }
 
@@ -204,6 +235,7 @@ export class Interaction {
     if (!this.raycaster.ray.intersectPlane(this.drag.plane, target)) return;
 
     const joint = this.rig.solver.get(this.drag.joint);
+    if (this.state.stretchy) this.rig.solver.applyStretch(this.drag.joint, target);
     this.rig.solver.solve(new Map([[this.drag.joint, target]]));
     if (joint.pinned) joint.pinPos.copy(joint.pos);
     this.rig.applyPose();
