@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Character Poser — OpenPose Concept</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <h1>Character Poser</h1>
+        <div id="loading">Loading character…</div>
+        <div id="controls" hidden>
+          <section>
+            <h2>Body Controls</h2>
+            <div id="bodymap"></div>
+          </section>
+          <section>
+            <h2>Selected: <span id="joint-name">none</span></h2>
+            <p class="hint">
+              <b>Left-drag</b> a point to move it. <b>Right-drag</b> to move it with its children.
+              <b>Mousewheel while dragging</b> moves the point in depth.
+            </p>
+            <p class="hint">
+              With a point selected: drag the <b>ring</b> to twist around its axis, drag the
+              <b>orange helper</b> to aim it (children follow).
+            </p>
+            <p class="hint"><b>Middle-drag</b> pans the canvas, <b>mousewheel</b> zooms.</p>
+          </section>
+          <section>
+            <div class="btn-row">
+              <button id="btn-reset">Reset Pose</button>
+            </div>
+          </section>
+        </div>
+      </aside>
+      <main id="viewport-area">
+        <canvas id="scene-canvas"></canvas>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
