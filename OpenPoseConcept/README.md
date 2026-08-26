@@ -20,16 +20,17 @@ npm run build   # production build to dist/
 
 ## Interaction
 
-Everywhere, the mouse button picks the scope: **left mouse affects only the node itself,
-right mouse carries all of its children rigidly.**
+Everywhere, a modifier picks the scope: **plain manipulation affects only the node itself;
+holding Shift (or using the right mouse button) cascades it down the body, carrying all of the
+node's children rigidly as if they were parented to it.**
 
-- **Drag** a control point: move it in the view XY plane (left = point alone, right = with subtree).
+- **Drag** a control point: move it in the view XY plane (Shift = with subtree).
 - **Mousewheel while dragging** (either button): move the point (or subtree) in z-depth instead.
 - **Select** a point (click it, or use the sidebar body map) to show the two helper widgets:
   - **Twist ring** (teal): drag along it to roll the node around its aim axis
-    (left = just the node's orientation, right = subtree rotates with it).
+    (Shift = subtree rotates with it).
   - **Direction helper** (orange dot): drag it to aim the node at it
-    (left = just the node's orientation, right = subtree rotates with it).
+    (Shift = subtree rotates with it).
     Mousewheel while dragging the helper moves the aim target in depth.
   - **Stretch ring** (lavender, passive): coplanar with the twist ring, radius = twist-ring
     radius x the stretch of the segment ending at this node. At natural length it hides behind

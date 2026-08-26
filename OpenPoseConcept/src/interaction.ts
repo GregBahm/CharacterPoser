@@ -3,6 +3,11 @@ import { CharacterRig } from './rig.ts';
 import { CONTROL_JOINTS, JointId, PoseGraph } from './pose.ts';
 import { AppState, COLORS, pointColor } from './state.ts';
 
+/** Shift (or the right mouse button) makes a manipulation carry the node's subtree. */
+function cascades(e: PointerEvent): boolean {
+  return e.shiftKey || e.button === 2;
+}
+
 /** Meters moved per mousewheel notch while depth-dragging a point. */
 const Z_STEP = 0.05;
 /** Direction helper distance in front of the node, along its aim. */
@@ -165,9 +170,10 @@ type Drag =
   | { mode: 'orbit'; lastX: number; lastY: number };
 
 /**
- * Pointer handling for the canvas. Left mouse affects the local node only,
- * right mouse carries the whole subtree — for point drags and widget drags
- * alike:
+ * Pointer handling for the canvas. By default a manipulation affects the
+ * local node only; holding Shift (or using the right mouse button) cascades
+ * it down the body, carrying the whole subtree as if parented to the node —
+ * for point drags and widget drags alike:
  *  - drag a point: move it in the view XY plane
  *  - mousewheel while dragging: move in z-space instead
  *  - drag the selected node's twist ring / direction helper: rotate it
@@ -277,9 +283,9 @@ export class Interaction {
     this.setRay(e);
 
     // Widgets of the selected node take priority over the control spheres.
+    const withChildren = cascades(e);
     if (this.state.selected) {
       const joint = this.state.selected;
-      const withChildren = e.button === 2;
       if (this.raycaster.intersectObject(this.widgets.helperPick, false).length > 0) {
         this.drag = { mode: 'aim', joint, target: this.widgets.helperWorldPos(), withChildren };
         this.canvas.setPointerCapture(e.pointerId);
@@ -302,7 +308,7 @@ export class Interaction {
     const center = this.pose.get(joint).pos;
     const planeHit = this.hitViewPlane(center);
     const grabOffset = planeHit ? new THREE.Vector3().subVectors(center, planeHit) : new THREE.Vector3();
-    this.drag = { mode: e.button === 0 ? 'point' : 'subtree', joint, grabOffset };
+    this.drag = { mode: withChildren ? 'subtree' : 'point', joint, grabOffset };
     this.canvas.setPointerCapture(e.pointerId);
   };
 
