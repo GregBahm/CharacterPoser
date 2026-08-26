@@ -58,7 +58,7 @@ resize();
 async function init() {
   const params = new URLSearchParams(location.search);
 
-  const rig = await CharacterRig.load(encodeURI('/X Bot.fbx'));
+  const rig = await CharacterRig.load(encodeURI('/testMPFBPerson.fbx'));
   scene.add(rig.root);
 
   const pose = new PoseGraph(rig.bindWorldPositions);

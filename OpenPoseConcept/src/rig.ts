@@ -230,13 +230,37 @@ function axialScale(out: THREE.Matrix4, axis: THREE.Vector3, s: number): THREE.M
   );
 }
 
-/** Find a bone whose sanitized name ends with the given Mixamo joint name. */
+const BONE_ALIASES: Partial<Record<JointId, string>> = {
+  Hips: 'root',
+  Spine: 'spine04',
+  Spine1: 'spine02',
+  Spine2: 'spine01',
+  Neck: 'neck01',
+  Head: 'head',
+  LeftShoulder: 'clavicleL',
+  LeftArm: 'upperarm01L',
+  LeftForeArm: 'lowerarm01L',
+  LeftHand: 'wristL',
+  RightShoulder: 'clavicleR',
+  RightArm: 'upperarm01R',
+  RightForeArm: 'lowerarm01R',
+  RightHand: 'wristR',
+  LeftUpLeg: 'upperleg01L',
+  LeftLeg: 'lowerleg01L',
+  LeftFoot: 'footL',
+  RightUpLeg: 'upperleg01R',
+  RightLeg: 'lowerleg01R',
+  RightFoot: 'footR',
+};
+
+/** Find either a native character bone alias or a Mixamo joint name. */
 function findBone(root: THREE.Object3D, id: JointId): THREE.Bone | null {
   let found: THREE.Bone | null = null;
+  const alias = BONE_ALIASES[id];
   root.traverse((obj) => {
     if (found || !(obj as THREE.Bone).isBone) return;
     const clean = obj.name.replace(/[^A-Za-z0-9]/g, '');
-    if (clean.endsWith(id)) found = obj as THREE.Bone;
+    if (clean === alias || clean.endsWith(id)) found = obj as THREE.Bone;
   });
   return found;
 }
