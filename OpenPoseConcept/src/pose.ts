@@ -52,6 +52,11 @@ export const JOINT_DEFS: JointDef[] = [
   { id: 'RightFoot', parent: 'RightLeg' },
 ];
 
+/** Skeleton parent of each joint. */
+export const JOINT_PARENT: Record<JointId, JointId | null> = Object.fromEntries(
+  JOINT_DEFS.map((d) => [d.id, d.parent]),
+) as Record<JointId, JointId | null>;
+
 /** The 13 user-facing control points (OpenPose-style body). */
 export const CONTROL_JOINTS: JointId[] = [
   'Hips',
@@ -131,6 +136,8 @@ export interface SolvedSkeleton {
 export class PoseGraph {
   nodes = new Map<JointId, ControlNode>();
   bindPositions = new Map<JointId, THREE.Vector3>();
+  /** Result of the most recent solveSkeleton(), for read-only queries. */
+  lastSolved: SolvedSkeleton | null = null;
 
   /** Spine/Spine1 positions as fractions along the Hips->Chest line at bind. */
   private tSpine = 0.33;
@@ -198,13 +205,14 @@ export class PoseGraph {
   }
 
   /**
-   * Rotate the node and its whole control subtree by a world-space delta
-   * about the node's position. Descendant positions and orientations both
-   * rotate, so limbs move rigidly.
+   * Rotate the node by a world-space delta about its position. With
+   * `withChildren`, descendant positions and orientations rotate along, so
+   * the limb moves rigidly; without it, only this node's orientation changes.
    */
-  rotate(id: JointId, delta: THREE.Quaternion) {
+  rotate(id: JointId, delta: THREE.Quaternion, withChildren: boolean) {
     const node = this.get(id);
     node.quat.premultiply(delta);
+    if (!withChildren) return;
     const pivot = node.pos;
     const tmp = new THREE.Vector3();
     const stack = [...node.children];
@@ -218,20 +226,20 @@ export class PoseGraph {
   }
 
   /** Point the node's forward axis at a world target (direction helper). */
-  aimAt(id: JointId, target: THREE.Vector3) {
+  aimAt(id: JointId, target: THREE.Vector3, withChildren: boolean) {
     const node = this.get(id);
     const desired = new THREE.Vector3().subVectors(target, node.pos);
     if (desired.lengthSq() < 1e-8) return;
     desired.normalize();
     const current = this.forward(id);
     const delta = new THREE.Quaternion().setFromUnitVectors(current, desired);
-    this.rotate(id, delta);
+    this.rotate(id, delta, withChildren);
   }
 
-  /** Roll the node and subtree around the node's forward axis (twist ring). */
-  twist(id: JointId, angle: number) {
+  /** Roll the node around its forward axis (twist ring). */
+  twist(id: JointId, angle: number, withChildren: boolean) {
     const axis = this.forward(id);
-    this.rotate(id, new THREE.Quaternion().setFromAxisAngle(axis, angle));
+    this.rotate(id, new THREE.Quaternion().setFromAxisAngle(axis, angle), withChildren);
   }
 
   reset() {
@@ -276,7 +284,22 @@ export class PoseGraph {
       rot.set(id, hips.quat.clone().slerp(chest.quat, t));
     }
 
-    return { pos, rot };
+    this.lastSolved = { pos, rot };
+    return this.lastSolved;
+  }
+
+  /**
+   * Current length of the skeleton segment ending at `id` (its skeleton
+   * parent -> it) relative to bind: 1 = natural, >1 longer, <1 shorter.
+   * The root has no segment and reports 1.
+   */
+  segmentStretch(id: JointId): number {
+    const parent = JOINT_PARENT[id];
+    if (!parent) return 1;
+    const solved = this.lastSolved ?? this.solveSkeleton();
+    const bindLen = this.bindPositions.get(id)!.distanceTo(this.bindPositions.get(parent)!);
+    if (bindLen < 1e-6) return 1;
+    return solved.pos.get(id)!.distanceTo(solved.pos.get(parent)!) / bindLen;
   }
 }
 

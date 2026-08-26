@@ -7,7 +7,12 @@ import { AppState, COLORS, pointColor } from './state.ts';
 const Z_STEP = 0.05;
 /** Direction helper distance in front of the node, along its aim. */
 const HELPER_OFFSET = 0.24;
+/** Radians of camera orbit per pixel of Alt-drag (Maya/Unity tumble feel). */
+const ORBIT_SPEED = 0.008;
+/** Keep the orbit pitch this far from straight up/down so the camera never flips. */
+const ORBIT_PITCH_LIMIT = THREE.MathUtils.degToRad(89);
 const RING_RADIUS = 0.09;
+const RING_TUBE = 0.007;
 
 /** Draggable control-point spheres drawn on top of the character. */
 export class ControlPoints {
@@ -47,15 +52,21 @@ export class ControlPoints {
 }
 
 /**
- * The two helper widgets shown for the selected node, in the node's local
- * frame: the twist ring lies perpendicular to the node's aim, and the
- * direction helper floats in front of the node along its current aim.
+ * The helper widgets shown for the selected node, in the node's local frame:
+ * the twist ring lies perpendicular to the node's aim, the direction helper
+ * floats in front of the node along its current aim, and a passive stretch
+ * ring (coplanar with the twist ring) shows how far the segment ending at
+ * this node is from its natural length: its radius is the twist ring's
+ * radius times the stretch factor, so it coincides with (hides behind) the
+ * twist ring at natural length, grows when longer, shrinks when shorter.
  */
 export class Widgets {
   group = new THREE.Group();
   ringPick: THREE.Mesh;
   helperPick: THREE.Mesh;
   private ring: THREE.Mesh;
+  private stretchRing: THREE.Mesh;
+  private stretchRingRadius = RING_RADIUS;
   private helper: THREE.Mesh;
   private line: THREE.Line;
   private linePositions: Float32Array;
@@ -65,10 +76,16 @@ export class Widgets {
     private state: AppState,
   ) {
     this.ring = new THREE.Mesh(
-      new THREE.TorusGeometry(RING_RADIUS, 0.007, 10, 48),
+      new THREE.TorusGeometry(RING_RADIUS, RING_TUBE, 10, 48),
       new THREE.MeshBasicMaterial({ color: COLORS.ring, depthTest: false, transparent: true, opacity: 0.85 }),
     );
     this.ring.renderOrder = 11;
+    this.stretchRing = new THREE.Mesh(
+      new THREE.TorusGeometry(RING_RADIUS, RING_TUBE, 10, 48),
+      new THREE.MeshBasicMaterial({ color: COLORS.stretchRing, depthTest: false, transparent: true, opacity: 0.7 }),
+    );
+    // Drawn just under the twist ring so it vanishes when the radii match.
+    this.stretchRing.renderOrder = 10.5;
     // Fatter invisible torus so the thin ring is easy to grab.
     this.ringPick = new THREE.Mesh(
       new THREE.TorusGeometry(RING_RADIUS, 0.03, 8, 32),
@@ -94,8 +111,17 @@ export class Widgets {
     );
     this.line.renderOrder = 11;
 
-    this.group.add(this.ring, this.ringPick, this.helper, this.helperPick, this.line);
+    this.group.add(this.ring, this.stretchRing, this.ringPick, this.helper, this.helperPick, this.line);
     this.group.visible = false;
+  }
+
+  /** Rebuild the stretch ring's torus so its tube stays constant while the radius changes. */
+  private setStretchRingRadius(radius: number) {
+    radius = Math.max(radius, RING_TUBE);
+    if (Math.abs(radius - this.stretchRingRadius) < 1e-4) return;
+    this.stretchRingRadius = radius;
+    this.stretchRing.geometry.dispose();
+    this.stretchRing.geometry = new THREE.TorusGeometry(radius, RING_TUBE, 10, 48);
   }
 
   helperWorldPos(target = new THREE.Vector3()): THREE.Vector3 {
@@ -116,6 +142,11 @@ export class Widgets {
     this.ringPick.position.copy(node.pos);
     this.ringPick.quaternion.copy(node.quat);
 
+    this.stretchRing.visible = node.parent !== null;
+    this.stretchRing.position.copy(node.pos);
+    this.stretchRing.quaternion.copy(node.quat);
+    this.setStretchRingRadius(RING_RADIUS * this.pose.segmentStretch(id));
+
     const helperPos = this.helperWorldPos();
     this.helper.position.copy(helperPos);
     this.helperPick.position.copy(helperPos);
@@ -127,18 +158,21 @@ export class Widgets {
 
 type Drag =
   | { mode: 'point' | 'subtree'; joint: JointId; grabOffset: THREE.Vector3 }
-  | { mode: 'aim'; joint: JointId; target: THREE.Vector3 }
-  | { mode: 'twist'; joint: JointId; axis: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3; lastAngle: number }
-  | { mode: 'twist-pixels'; joint: JointId; lastX: number }
-  | { mode: 'pan'; lastX: number; lastY: number };
+  | { mode: 'aim'; joint: JointId; target: THREE.Vector3; withChildren: boolean }
+  | { mode: 'twist'; joint: JointId; axis: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3; lastAngle: number; withChildren: boolean }
+  | { mode: 'twist-pixels'; joint: JointId; lastX: number; withChildren: boolean }
+  | { mode: 'pan'; lastX: number; lastY: number }
+  | { mode: 'orbit'; lastX: number; lastY: number };
 
 /**
- * Pointer handling for the canvas:
- *  - left-drag a point: move it alone in the view XY plane
- *  - right-drag a point: move it and its whole subtree
- *  - mousewheel while either drag: move in z-space instead
- *  - left-drag the twist ring / direction helper of the selected node
- *  - middle-drag: pan; mousewheel (no drag): zoom
+ * Pointer handling for the canvas. Left mouse affects the local node only,
+ * right mouse carries the whole subtree — for point drags and widget drags
+ * alike:
+ *  - drag a point: move it in the view XY plane
+ *  - mousewheel while dragging: move in z-space instead
+ *  - drag the selected node's twist ring / direction helper: rotate it
+ *  - middle-drag: pan; alt + left-drag: orbit (tumble) around the camera
+ *    target; mousewheel (no drag): zoom
  */
 export class Interaction {
   private canvas: HTMLCanvasElement;
@@ -233,18 +267,26 @@ export class Interaction {
     }
     if (e.button !== 0 && e.button !== 2) return;
 
+    if (e.button === 0 && e.altKey) {
+      e.preventDefault();
+      this.drag = { mode: 'orbit', lastX: e.clientX, lastY: e.clientY };
+      this.canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+
     this.setRay(e);
 
-    // Widgets of the selected node take priority under the left button.
-    if (e.button === 0 && this.state.selected) {
+    // Widgets of the selected node take priority over the control spheres.
+    if (this.state.selected) {
       const joint = this.state.selected;
+      const withChildren = e.button === 2;
       if (this.raycaster.intersectObject(this.widgets.helperPick, false).length > 0) {
-        this.drag = { mode: 'aim', joint, target: this.widgets.helperWorldPos() };
+        this.drag = { mode: 'aim', joint, target: this.widgets.helperWorldPos(), withChildren };
         this.canvas.setPointerCapture(e.pointerId);
         return;
       }
       if (this.raycaster.intersectObject(this.widgets.ringPick, false).length > 0) {
-        this.drag = this.beginTwist(e, joint);
+        this.drag = this.beginTwist(e, joint, withChildren);
         this.canvas.setPointerCapture(e.pointerId);
         return;
       }
@@ -264,18 +306,18 @@ export class Interaction {
     this.canvas.setPointerCapture(e.pointerId);
   };
 
-  private beginTwist(e: PointerEvent, joint: JointId): Drag {
+  private beginTwist(e: PointerEvent, joint: JointId, withChildren: boolean): Drag {
     const axis = this.pose.forward(joint);
     const camDir = this.camera.getWorldDirection(new THREE.Vector3());
     // Ring edge-on to the camera: fall back to horizontal mouse movement.
     if (Math.abs(camDir.dot(axis)) < 0.25) {
-      return { mode: 'twist-pixels', joint, lastX: e.clientX };
+      return { mode: 'twist-pixels', joint, lastX: e.clientX, withChildren };
     }
     const u = new THREE.Vector3().crossVectors(axis, new THREE.Vector3(0, 1, 0));
     if (u.lengthSq() < 1e-6) u.set(1, 0, 0);
     u.normalize();
     const v = new THREE.Vector3().crossVectors(axis, u);
-    return { mode: 'twist', joint, axis, u, v, lastAngle: this.twistAngle(joint, axis, u, v) ?? 0 };
+    return { mode: 'twist', joint, axis, u, v, lastAngle: this.twistAngle(joint, axis, u, v) ?? 0, withChildren };
   }
 
   private twistAngle(joint: JointId, axis: THREE.Vector3, u: THREE.Vector3, v: THREE.Vector3): number | null {
@@ -302,13 +344,21 @@ export class Interaction {
 
     const d = this.drag;
     if (d.mode === 'pan') {
+      // Slide camera and target together along the view's right/up axes.
       const wpp = this.worldPerPixel();
       const dx = (e.clientX - d.lastX) * wpp;
       const dy = (e.clientY - d.lastY) * wpp;
-      this.camera.position.x -= dx;
-      this.camera.position.y += dy;
-      this.cameraTarget.x -= dx;
-      this.cameraTarget.y += dy;
+      const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0);
+      const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
+      const move = right.multiplyScalar(-dx).addScaledVector(up, dy);
+      this.camera.position.add(move);
+      this.cameraTarget.add(move);
+      d.lastX = e.clientX;
+      d.lastY = e.clientY;
+      return;
+    }
+    if (d.mode === 'orbit') {
+      this.orbit((e.clientX - d.lastX) * ORBIT_SPEED, (e.clientY - d.lastY) * ORBIT_SPEED);
       d.lastX = e.clientX;
       d.lastY = e.clientY;
       return;
@@ -325,7 +375,7 @@ export class Interaction {
       const hit = this.hitViewPlane(d.target);
       if (!hit) return;
       d.target.copy(hit);
-      this.pose.aimAt(d.joint, d.target);
+      this.pose.aimAt(d.joint, d.target, d.withChildren);
       this.applyPose();
     } else if (d.mode === 'twist') {
       const angle = this.twistAngle(d.joint, d.axis, d.u, d.v);
@@ -334,12 +384,12 @@ export class Interaction {
       if (delta > Math.PI) delta -= 2 * Math.PI;
       if (delta < -Math.PI) delta += 2 * Math.PI;
       d.lastAngle = angle;
-      this.pose.twist(d.joint, delta);
+      this.pose.twist(d.joint, delta, d.withChildren);
       this.applyPose();
     } else if (d.mode === 'twist-pixels') {
       const delta = (e.clientX - d.lastX) * 0.01;
       d.lastX = e.clientX;
-      this.pose.twist(d.joint, delta);
+      this.pose.twist(d.joint, delta, d.withChildren);
       this.applyPose();
     }
   };
@@ -356,15 +406,17 @@ export class Interaction {
     if (notch === 0) return;
     const d = this.drag;
 
-    // Wheel-up brings the point toward the camera (+Z), wheel-down pushes it away.
+    // Wheel-up brings the point toward the camera, wheel-down pushes it away
+    // (along the view direction, so this stays "depth" from any orbit angle).
+    const depthStep = this.camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(notch * Z_STEP);
     if (d && (d.mode === 'point' || d.mode === 'subtree')) {
-      this.pose.translate(d.joint, new THREE.Vector3(0, 0, -notch * Z_STEP), d.mode === 'subtree');
+      this.pose.translate(d.joint, depthStep, d.mode === 'subtree');
       this.applyPose();
       return;
     }
     if (d && d.mode === 'aim') {
-      d.target.z -= notch * Z_STEP;
-      this.pose.aimAt(d.joint, d.target);
+      d.target.add(depthStep);
+      this.pose.aimAt(d.joint, d.target, d.withChildren);
       this.applyPose();
       return;
     }
@@ -376,6 +428,27 @@ export class Interaction {
     offset.setLength(dist);
     this.camera.position.copy(this.cameraTarget).add(offset);
   };
+
+  /**
+   * Tumble the camera about its target: yaw around world up, pitch around
+   * the camera's right axis, pitch clamped short of the poles so the view
+   * never flips (Maya/Unity alt-drag behaviour). Dragging right orbits the
+   * camera to the right, i.e. the scene appears to turn left.
+   */
+  private orbit(dYaw: number, dPitch: number) {
+    const offset = new THREE.Vector3().subVectors(this.camera.position, this.cameraTarget);
+    const spherical = new THREE.Spherical().setFromVector3(offset);
+    spherical.theta -= dYaw;
+    spherical.phi = THREE.MathUtils.clamp(
+      spherical.phi - dPitch,
+      Math.PI / 2 - ORBIT_PITCH_LIMIT,
+      Math.PI / 2 + ORBIT_PITCH_LIMIT,
+    );
+    offset.setFromSpherical(spherical);
+    this.camera.position.copy(this.cameraTarget).add(offset);
+    this.camera.lookAt(this.cameraTarget);
+    this.camera.updateMatrixWorld();
+  }
 
   /** World units per screen pixel at the camera target's depth. */
   private worldPerPixel(): number {

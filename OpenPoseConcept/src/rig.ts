@@ -9,6 +9,12 @@ interface BoneBinding {
   bindLocalPos: THREE.Vector3;
   bindLocalQuat: THREE.Quaternion;
   bindWorldQuat: THREE.Quaternion;
+  /**
+   * For single-child segment bones: unit direction (bone-local) toward the
+   * child joint. The bone stretches along this axis to span the solved
+   * joints. Null for the root/branching bones (Hips, Spine2) and leaves.
+   */
+  stretchAxis: THREE.Vector3 | null;
 }
 
 const CHARACTER_HEIGHT = 1.75; // meters
@@ -70,7 +76,11 @@ export class CharacterRig {
         bindLocalPos: bone.position.clone(),
         bindLocalQuat: bone.quaternion.clone(),
         bindWorldQuat: bone.getWorldQuaternion(new THREE.Quaternion()),
+        stretchAxis: null,
       });
+      // Bone matrices are written explicitly in applyPose (axial stretch is
+      // not expressible via position/quaternion/scale alone).
+      bone.matrixAutoUpdate = false;
       rig.bindWorldPositions.set(def.id, bone.getWorldPosition(new THREE.Vector3()));
     }
     for (const def of JOINT_DEFS) {
@@ -78,6 +88,11 @@ export class CharacterRig {
       const list = rig.childBindings.get(def.parent) ?? [];
       list.push(rig.bindings.get(def.id)!);
       rig.childBindings.set(def.parent, list);
+    }
+    for (const [id, children] of rig.childBindings) {
+      if (children.length !== 1) continue;
+      const axis = children[0].bindLocalPos.clone();
+      if (axis.lengthSq() > 1e-10) rig.bindings.get(id)!.stretchAxis = axis.normalize();
     }
 
     return rig;
@@ -91,10 +106,13 @@ export class CharacterRig {
    * Fit the bones to the solved skeleton. Stateless per call: pose =
    * f(solved positions, solved rotation deltas), so no drift accumulates.
    *
-   * Per bone: length scales so it spans parent->joint exactly (free points
-   * squash/stretch their segments), and orientation = aim-correction *
-   * rotation-delta * bind, so twist/aim from the widgets carries into the
-   * mesh while the bone still points at its solved children.
+   * Per bone: orientation = aim-correction * rotation-delta * bind, so
+   * twist/aim from the widgets carries into the mesh while the bone still
+   * points at its solved children. Each segment bone (one child) is then
+   * scaled along its child axis by solvedLength / bindLength -- a plain axial
+   * stretch, no volume preservation -- so the skin actually lengthens or
+   * shortens to meet the control points. Children counter-scale so the
+   * stretch does not propagate down the chain.
    */
   applyPose(solved: SolvedSkeleton) {
     const tmpParentQuat = new THREE.Quaternion();
@@ -105,6 +123,7 @@ export class CharacterRig {
 
     // Reset every mapped bone to bind-local, scaling its offset from the
     // parent so the bone length matches the solved joint spacing.
+    const stretchOf = new Map<JointId, number>();
     for (const [id, b] of this.bindings) {
       let stretch = 1;
       if (b.parent) {
@@ -112,8 +131,11 @@ export class CharacterRig {
         const curLen = solved.pos.get(id)!.distanceTo(solved.pos.get(b.parent)!);
         if (bindLen > 1e-6) stretch = curLen / bindLen;
       }
+      stretchOf.set(id, stretch);
       b.bone.position.copy(b.bindLocalPos).multiplyScalar(stretch);
       b.bone.quaternion.copy(b.bindLocalQuat);
+      b.bone.scale.setScalar(1);
+      b.bone.updateMatrix();
     }
 
     // Translate the hips so their world position matches the solve.
@@ -123,6 +145,7 @@ export class CharacterRig {
     hips.bone.position
       .copy(solved.pos.get('Hips')!)
       .applyMatrix4(new THREE.Matrix4().copy(hipsParent.matrixWorld).invert());
+    hips.bone.updateMatrix();
 
     // Root -> leaves (JOINT_DEFS order): compute each bone's world orientation
     // directly from bind data, then convert to bone-local.
@@ -170,11 +193,41 @@ export class CharacterRig {
 
       bone.parent!.getWorldQuaternion(tmpParentQuat);
       bone.quaternion.copy(tmpParentQuat.invert().multiply(targetWorld));
+      bone.updateMatrix();
       bone.updateWorldMatrix(false, false);
+    }
+
+    // Axial stretch: segment bones scale along their child axis. The child's
+    // local matrix is pre-multiplied by the inverse so it (and the rest of
+    // the chain) keeps its own solved placement.
+    const scaleM = new THREE.Matrix4();
+    const invScaleM = new THREE.Matrix4();
+    for (const def of JOINT_DEFS) {
+      const b = this.bindings.get(def.id)!;
+      if (!b.stretchAxis) continue;
+      const child = this.childBindings.get(def.id)![0];
+      const s = stretchOf.get(child.id) ?? 1;
+      if (Math.abs(s - 1) < 1e-6) continue;
+      axialScale(scaleM, b.stretchAxis, s);
+      axialScale(invScaleM, b.stretchAxis, 1 / s);
+      b.bone.matrix.multiply(scaleM);
+      child.bone.matrix.premultiply(invScaleM);
     }
 
     this.root.updateWorldMatrix(true, true);
   }
+}
+
+/** Scale matrix that stretches by `s` along unit `axis` only: I + (s-1) * a * a^T. */
+function axialScale(out: THREE.Matrix4, axis: THREE.Vector3, s: number): THREE.Matrix4 {
+  const k = s - 1;
+  const { x, y, z } = axis;
+  return out.set(
+    1 + k * x * x, k * x * y, k * x * z, 0,
+    k * y * x, 1 + k * y * y, k * y * z, 0,
+    k * z * x, k * z * y, 1 + k * z * z, 0,
+    0, 0, 0, 1,
+  );
 }
 
 /** Find a bone whose sanitized name ends with the given Mixamo joint name. */

@@ -4,6 +4,7 @@ export const COLORS = {
   free: 0x4da6ff,
   selected: 0xffd24d,
   ring: 0x39e0d0,
+  stretchRing: 0xc9a6ff,
   helper: 0xff8a3d,
 };
 

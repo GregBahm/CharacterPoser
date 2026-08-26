@@ -16,7 +16,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x22262e);
 
-// Front-facing camera; orientation is fixed (the canvas pans/zooms, never orbits).
+// Front-facing camera by default; alt-drag orbits it around cameraTarget.
 const cameraTarget = new THREE.Vector3(0, 0.95, 0);
 const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 100);
 camera.position.set(0, 0.95, 4.2);
@@ -88,13 +88,13 @@ async function init() {
     interaction.applyPose();
   }
   if (params.has('testaim')) {
-    // Direction helper equivalent: aim the chest up-and-forward.
-    pose.aimAt('Spine2', pose.get('Spine2').pos.clone().add(new THREE.Vector3(0, 0.8, 0.6)));
+    // Right-drag direction helper equivalent: aim the chest up-and-forward.
+    pose.aimAt('Spine2', pose.get('Spine2').pos.clone().add(new THREE.Vector3(0, 0.8, 0.6)), true);
     interaction.applyPose();
   }
   if (params.has('testtwist')) {
-    // Twist ring equivalent: roll the hips around their forward axis.
-    pose.twist('Hips', 0.6);
+    // Right-drag twist ring equivalent: roll the hips around their forward axis.
+    pose.twist('Hips', 0.6, true);
     interaction.applyPose();
   }
   if (params.has('select')) {
