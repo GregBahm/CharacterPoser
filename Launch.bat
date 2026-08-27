@@ -1,5 +1,5 @@
 @echo off
-title OpenPoseConcept Server
+title Character Poser Server
 cd /d "%~dp0"
 
 if not exist node_modules (
@@ -8,7 +8,7 @@ if not exist node_modules (
   exit /b 1
 )
 
-echo Starting OpenPoseConcept dev server...
+echo Starting Character Poser dev server...
 echo Close this window to stop the server.
 echo.
 

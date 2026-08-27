@@ -1,10 +1,9 @@
-# Character Poser — OpenPose Concept
+# Character Poser
 
-Direct-manipulation posing prototype (second interaction-model concept, after `HikConcept`).
-There is no IK solver: the body is a tree of free-floating control points that are moved
-directly, OpenPose-style, and the mesh stretches to fit the points wherever they go.
-The same model extends into close-up finger and bone-driven facial controls. The tool will
-eventually drive AI image generation through ComfyUI controlnet.
+Direct-manipulation character posing in the browser. There is no IK solver: the body is a tree of
+free-floating control points that are moved directly, OpenPose-style, and the mesh stretches to fit
+the points wherever they go. The same model extends into close-up finger and bone-driven facial
+controls. The tool will eventually drive AI image generation through ComfyUI controlnet.
 
 ## Running
 
@@ -58,8 +57,7 @@ node's children rigidly as if they were parented to it.**
   no volume preservation), with the child counter-scaled so the stretch doesn't propagate.
   Leaf bones (head/hands/feet) follow their node's rotation delta exactly.
 - `src/interaction.ts` — control spheres, the widgets, and all pointer/wheel handling.
-- `src/ui.ts`, `src/state.ts`, `src/main.ts` — HIK-style body-map sidebar, selection state,
-  scene bootstrap.
+- `src/ui.ts`, `src/state.ts`, `src/main.ts` — body-map sidebar, selection state, scene bootstrap.
 
 Debug query params: `?testdrag`, `?testsubtree`, `?testaim`, `?testtwist` apply scripted
 manipulations; `?debug` prints joint positions; `?select=<JointId>` preselects a node.

@@ -1,4 +1,4 @@
-# OpenPoseConcept Roadmap
+# Character Poser Roadmap
 
 Immediate goals for the posing tool. Items are worked one at a time — discussed, built, and
 tested in the browser until they feel right — roughly in the order below.
