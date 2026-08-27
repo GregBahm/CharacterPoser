@@ -98,6 +98,38 @@ body {
   gap: 6px;
 }
 
+.view-tab {
+  display: flex;
+}
+
+.view-tab > button:first-child {
+  border-radius: 6px 0 0 6px;
+  border-right-color: #2e3340;
+}
+
+.frame-btn {
+  flex: 0 0 auto;
+  padding: 7px 8px;
+  border-radius: 0 6px 6px 0;
+  color: #98a1b0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.frame-btn:hover {
+  color: #ffffff;
+}
+
+.frame-btn svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
 button {
   flex: 1;
   padding: 7px 10px;

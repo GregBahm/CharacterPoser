@@ -159,6 +159,14 @@ const VIEW_BUTTONS: Record<ControlView, string> = {
   face: 'btn-view-face',
 };
 
+/** Magnifying-glass button beside each tab: switch to that view *and* frame it. */
+const FRAME_BUTTONS: Record<ControlView, string> = {
+  body: 'btn-frame-body',
+  leftHand: 'btn-frame-left-hand',
+  rightHand: 'btn-frame-right-hand',
+  face: 'btn-frame-face',
+};
+
 /** Sidebar maps for body, hand, and face controls plus selection and reset. */
 export class UI {
   private circles = new Map<JointId, SVGCircleElement>();
@@ -169,11 +177,14 @@ export class UI {
   constructor(
     private state: AppState,
     onReset: () => void,
-    private onViewChange: (view: ControlView) => void,
+    private onFrameView: (view: ControlView) => void,
   ) {
     document.getElementById('btn-reset')!.addEventListener('click', onReset);
     for (const [view, buttonId] of Object.entries(VIEW_BUTTONS) as [ControlView, string][]) {
       document.getElementById(buttonId)!.addEventListener('click', () => this.switchView(view));
+    }
+    for (const [view, buttonId] of Object.entries(FRAME_BUTTONS) as [ControlView, string][]) {
+      document.getElementById(buttonId)!.addEventListener('click', () => this.frameView(view));
     }
 
     window.addEventListener('keydown', (e) => {
@@ -184,9 +195,15 @@ export class UI {
     this.render();
   }
 
+  /** Switch control maps only — the camera stays where the user left it. */
   private switchView(view: ControlView) {
     this.state.setView(view);
-    this.onViewChange(view);
+  }
+
+  /** Switch to a view and move the camera to frame it. */
+  private frameView(view: ControlView) {
+    this.switchView(view);
+    this.onFrameView(view);
   }
 
   private buildControlMap() {

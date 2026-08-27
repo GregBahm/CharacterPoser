@@ -99,11 +99,12 @@ async function init() {
 
   const requestedView = params.get('view');
   if (requestedView && ['body', 'leftHand', 'rightHand', 'face'].includes(requestedView)) {
+    // Frame buttons, so ?view= both switches the control map and frames the area.
     const buttonId: Record<ControlView, string> = {
-      body: 'btn-view-body',
-      leftHand: 'btn-view-left-hand',
-      rightHand: 'btn-view-right-hand',
-      face: 'btn-view-face',
+      body: 'btn-frame-body',
+      leftHand: 'btn-frame-left-hand',
+      rightHand: 'btn-frame-right-hand',
+      face: 'btn-frame-face',
     };
     document.getElementById(buttonId[requestedView as ControlView])!.click();
   }

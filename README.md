@@ -39,9 +39,10 @@ node's children rigidly as if they were parented to it.**
 - **Alt + left-drag** orbits (tumbles) the camera around its target, Maya/Unity style;
   **middle-drag** pans; **mousewheel** (not dragging) zooms.
 - **Escape** deselects; **Reset Pose** returns to the bind pose.
-- Use the **Body**, **Face**, **L Hand**, and **R Hand** tabs to switch control maps. The detail
-  tabs frame the selected area closely and expose its facial or finger control points. You can
-  also double-click the head or either hand on the body map to expand it.
+- Use the **Body**, **Face**, **L Hand**, and **R Hand** tabs to switch control maps; switching
+  never moves the camera. Click the **magnifying glass** beside a tab to also frame that area in
+  the viewport (the detail views frame in close). You can also double-click the head or either
+  hand on the body map to switch to its detail map.
 
 ## Architecture
 
