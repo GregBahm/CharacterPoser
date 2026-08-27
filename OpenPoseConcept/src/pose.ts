@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-/** All skeleton joints mapped to Mixamo bones (used to drive the mesh). */
+/** All body, finger, and facial joints used to drive the mesh. */
 export type JointId =
   | 'Hips'
   | 'Spine'
@@ -21,7 +21,50 @@ export type JointId =
   | 'LeftFoot'
   | 'RightUpLeg'
   | 'RightLeg'
-  | 'RightFoot';
+  | 'RightFoot'
+  | 'LeftThumb1'
+  | 'LeftThumb2'
+  | 'LeftThumb3'
+  | 'LeftIndex1'
+  | 'LeftIndex2'
+  | 'LeftIndex3'
+  | 'LeftMiddle1'
+  | 'LeftMiddle2'
+  | 'LeftMiddle3'
+  | 'LeftRing1'
+  | 'LeftRing2'
+  | 'LeftRing3'
+  | 'LeftPinky1'
+  | 'LeftPinky2'
+  | 'LeftPinky3'
+  | 'RightThumb1'
+  | 'RightThumb2'
+  | 'RightThumb3'
+  | 'RightIndex1'
+  | 'RightIndex2'
+  | 'RightIndex3'
+  | 'RightMiddle1'
+  | 'RightMiddle2'
+  | 'RightMiddle3'
+  | 'RightRing1'
+  | 'RightRing2'
+  | 'RightRing3'
+  | 'RightPinky1'
+  | 'RightPinky2'
+  | 'RightPinky3'
+  | 'Jaw'
+  | 'LeftEye'
+  | 'RightEye'
+  | 'LeftBrow'
+  | 'RightBrow'
+  | 'UpperLip'
+  | 'LowerLip'
+  | 'LeftMouthCorner'
+  | 'RightMouthCorner'
+  | 'LeftCheek'
+  | 'RightCheek';
+
+export type ControlView = 'body' | 'leftHand' | 'rightHand' | 'face';
 
 export interface JointDef {
   id: JointId;
@@ -50,6 +93,47 @@ export const JOINT_DEFS: JointDef[] = [
   { id: 'RightUpLeg', parent: 'Hips' },
   { id: 'RightLeg', parent: 'RightUpLeg' },
   { id: 'RightFoot', parent: 'RightLeg' },
+  { id: 'LeftThumb1', parent: 'LeftHand' },
+  { id: 'LeftThumb2', parent: 'LeftThumb1' },
+  { id: 'LeftThumb3', parent: 'LeftThumb2' },
+  { id: 'LeftIndex1', parent: 'LeftHand' },
+  { id: 'LeftIndex2', parent: 'LeftIndex1' },
+  { id: 'LeftIndex3', parent: 'LeftIndex2' },
+  { id: 'LeftMiddle1', parent: 'LeftHand' },
+  { id: 'LeftMiddle2', parent: 'LeftMiddle1' },
+  { id: 'LeftMiddle3', parent: 'LeftMiddle2' },
+  { id: 'LeftRing1', parent: 'LeftHand' },
+  { id: 'LeftRing2', parent: 'LeftRing1' },
+  { id: 'LeftRing3', parent: 'LeftRing2' },
+  { id: 'LeftPinky1', parent: 'LeftHand' },
+  { id: 'LeftPinky2', parent: 'LeftPinky1' },
+  { id: 'LeftPinky3', parent: 'LeftPinky2' },
+  { id: 'RightThumb1', parent: 'RightHand' },
+  { id: 'RightThumb2', parent: 'RightThumb1' },
+  { id: 'RightThumb3', parent: 'RightThumb2' },
+  { id: 'RightIndex1', parent: 'RightHand' },
+  { id: 'RightIndex2', parent: 'RightIndex1' },
+  { id: 'RightIndex3', parent: 'RightIndex2' },
+  { id: 'RightMiddle1', parent: 'RightHand' },
+  { id: 'RightMiddle2', parent: 'RightMiddle1' },
+  { id: 'RightMiddle3', parent: 'RightMiddle2' },
+  { id: 'RightRing1', parent: 'RightHand' },
+  { id: 'RightRing2', parent: 'RightRing1' },
+  { id: 'RightRing3', parent: 'RightRing2' },
+  { id: 'RightPinky1', parent: 'RightHand' },
+  { id: 'RightPinky2', parent: 'RightPinky1' },
+  { id: 'RightPinky3', parent: 'RightPinky2' },
+  { id: 'Jaw', parent: 'Head' },
+  { id: 'LeftEye', parent: 'Head' },
+  { id: 'RightEye', parent: 'Head' },
+  { id: 'LeftBrow', parent: 'Head' },
+  { id: 'RightBrow', parent: 'Head' },
+  { id: 'UpperLip', parent: 'Head' },
+  { id: 'LowerLip', parent: 'Jaw' },
+  { id: 'LeftMouthCorner', parent: 'Head' },
+  { id: 'RightMouthCorner', parent: 'Head' },
+  { id: 'LeftCheek', parent: 'Head' },
+  { id: 'RightCheek', parent: 'Head' },
 ];
 
 /** Skeleton parent of each joint. */
@@ -58,7 +142,7 @@ export const JOINT_PARENT: Record<JointId, JointId | null> = Object.fromEntries(
 ) as Record<JointId, JointId | null>;
 
 /** The 13 user-facing control points (OpenPose-style body). */
-export const CONTROL_JOINTS: JointId[] = [
+export const BODY_CONTROL_JOINTS: JointId[] = [
   'Hips',
   'Spine2',
   'Head',
@@ -73,6 +157,58 @@ export const CONTROL_JOINTS: JointId[] = [
   'RightLeg',
   'RightFoot',
 ];
+
+export const LEFT_HAND_JOINTS: JointId[] = [
+  'LeftThumb1', 'LeftThumb2', 'LeftThumb3',
+  'LeftIndex1', 'LeftIndex2', 'LeftIndex3',
+  'LeftMiddle1', 'LeftMiddle2', 'LeftMiddle3',
+  'LeftRing1', 'LeftRing2', 'LeftRing3',
+  'LeftPinky1', 'LeftPinky2', 'LeftPinky3',
+];
+
+export const RIGHT_HAND_JOINTS: JointId[] = [
+  'RightThumb1', 'RightThumb2', 'RightThumb3',
+  'RightIndex1', 'RightIndex2', 'RightIndex3',
+  'RightMiddle1', 'RightMiddle2', 'RightMiddle3',
+  'RightRing1', 'RightRing2', 'RightRing3',
+  'RightPinky1', 'RightPinky2', 'RightPinky3',
+];
+
+export const FACE_JOINTS: JointId[] = [
+  'Jaw',
+  'LeftEye',
+  'RightEye',
+  'LeftBrow',
+  'RightBrow',
+  'UpperLip',
+  'LowerLip',
+  'LeftMouthCorner',
+  'RightMouthCorner',
+  'LeftCheek',
+  'RightCheek',
+];
+
+export const DETAIL_JOINTS: JointId[] = [...LEFT_HAND_JOINTS, ...RIGHT_HAND_JOINTS, ...FACE_JOINTS];
+export const FINGER_JOINTS: JointId[] = [...LEFT_HAND_JOINTS, ...RIGHT_HAND_JOINTS];
+export const CONTROL_JOINTS: JointId[] = [...BODY_CONTROL_JOINTS, ...DETAIL_JOINTS];
+
+export const CONTROL_JOINTS_BY_VIEW: Record<ControlView, JointId[]> = {
+  body: BODY_CONTROL_JOINTS,
+  leftHand: ['LeftHand', ...LEFT_HAND_JOINTS],
+  rightHand: ['RightHand', ...RIGHT_HAND_JOINTS],
+  face: ['Head', ...FACE_JOINTS],
+};
+
+const DETAIL_JOINT_SET = new Set(DETAIL_JOINTS);
+const FINGER_JOINT_SET = new Set(FINGER_JOINTS);
+
+export function isDetailJoint(id: JointId): boolean {
+  return DETAIL_JOINT_SET.has(id);
+}
+
+export function isFingerJoint(id: JointId): boolean {
+  return FINGER_JOINT_SET.has(id);
+}
 
 /**
  * Parent of each control point in the *control* tree from the design doc.
@@ -93,6 +229,47 @@ export const CONTROL_PARENT: Partial<Record<JointId, JointId | null>> = {
   LeftFoot: 'LeftLeg',
   RightLeg: 'Hips',
   RightFoot: 'RightLeg',
+  LeftThumb1: 'LeftHand',
+  LeftThumb2: 'LeftThumb1',
+  LeftThumb3: 'LeftThumb2',
+  LeftIndex1: 'LeftHand',
+  LeftIndex2: 'LeftIndex1',
+  LeftIndex3: 'LeftIndex2',
+  LeftMiddle1: 'LeftHand',
+  LeftMiddle2: 'LeftMiddle1',
+  LeftMiddle3: 'LeftMiddle2',
+  LeftRing1: 'LeftHand',
+  LeftRing2: 'LeftRing1',
+  LeftRing3: 'LeftRing2',
+  LeftPinky1: 'LeftHand',
+  LeftPinky2: 'LeftPinky1',
+  LeftPinky3: 'LeftPinky2',
+  RightThumb1: 'RightHand',
+  RightThumb2: 'RightThumb1',
+  RightThumb3: 'RightThumb2',
+  RightIndex1: 'RightHand',
+  RightIndex2: 'RightIndex1',
+  RightIndex3: 'RightIndex2',
+  RightMiddle1: 'RightHand',
+  RightMiddle2: 'RightMiddle1',
+  RightMiddle3: 'RightMiddle2',
+  RightRing1: 'RightHand',
+  RightRing2: 'RightRing1',
+  RightRing3: 'RightRing2',
+  RightPinky1: 'RightHand',
+  RightPinky2: 'RightPinky1',
+  RightPinky3: 'RightPinky2',
+  Jaw: 'Head',
+  LeftEye: 'Head',
+  RightEye: 'Head',
+  LeftBrow: 'Head',
+  RightBrow: 'Head',
+  UpperLip: 'Head',
+  LowerLip: 'Jaw',
+  LeftMouthCorner: 'Head',
+  RightMouthCorner: 'Head',
+  LeftCheek: 'Head',
+  RightCheek: 'Head',
 };
 
 /**
@@ -190,8 +367,10 @@ export class PoseGraph {
   translate(id: JointId, delta: THREE.Vector3, withChildren: boolean) {
     const node = this.get(id);
     node.pos.add(delta);
-    if (!withChildren) return;
-    const stack = [...node.children];
+    const anchoredDetails = !isDetailJoint(id)
+      ? node.children.filter((child) => isDetailJoint(child.id))
+      : [];
+    const stack = withChildren ? [...node.children] : anchoredDetails;
     while (stack.length) {
       const n = stack.pop()!;
       n.pos.add(delta);
@@ -212,10 +391,12 @@ export class PoseGraph {
   rotate(id: JointId, delta: THREE.Quaternion, withChildren: boolean) {
     const node = this.get(id);
     node.quat.premultiply(delta);
-    if (!withChildren) return;
     const pivot = node.pos;
     const tmp = new THREE.Vector3();
-    const stack = [...node.children];
+    const anchoredDetails = !isDetailJoint(id)
+      ? node.children.filter((child) => isDetailJoint(child.id))
+      : [];
+    const stack = withChildren ? [...node.children] : anchoredDetails;
     while (stack.length) {
       const n = stack.pop()!;
       tmp.subVectors(n.pos, pivot).applyQuaternion(delta);
@@ -300,6 +481,12 @@ export class PoseGraph {
     const bindLen = this.bindPositions.get(id)!.distanceTo(this.bindPositions.get(parent)!);
     if (bindLen < 1e-6) return 1;
     return solved.pos.get(id)!.distanceTo(solved.pos.get(parent)!) / bindLen;
+  }
+
+  hasStretchSegment(id: JointId): boolean {
+    const parent = JOINT_PARENT[id];
+    if (!parent) return false;
+    return !isDetailJoint(id) || (isFingerJoint(id) && isFingerJoint(parent));
   }
 }
 

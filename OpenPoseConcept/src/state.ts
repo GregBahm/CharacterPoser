@@ -1,4 +1,4 @@
-import { JointId } from './pose.ts';
+import { ControlView, JointId } from './pose.ts';
 
 export const COLORS = {
   free: 0x4da6ff,
@@ -15,8 +15,15 @@ export function pointColor(selected: boolean): number {
 /** Shared selection state, observed by both the 3D view and the sidebar. */
 export class AppState {
   selected: JointId | null = null;
+  activeView: ControlView = 'body';
 
   private listeners: (() => void)[] = [];
+  private selections: Record<ControlView, JointId | null> = {
+    body: null,
+    leftHand: 'LeftHand',
+    rightHand: 'RightHand',
+    face: 'Head',
+  };
 
   onChange(fn: () => void) {
     this.listeners.push(fn);
@@ -29,6 +36,14 @@ export class AppState {
   select(id: JointId | null) {
     if (this.selected === id) return;
     this.selected = id;
+    this.selections[this.activeView] = id;
+    this.emit();
+  }
+
+  setView(view: ControlView) {
+    if (this.activeView === view) return;
+    this.activeView = view;
+    this.selected = this.selections[view];
     this.emit();
   }
 }

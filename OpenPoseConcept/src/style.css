@@ -92,6 +92,12 @@ body {
   gap: 8px;
 }
 
+.view-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
 button {
   flex: 1;
   padding: 7px 10px;
@@ -105,6 +111,12 @@ button {
 
 button:hover {
   background: #394050;
+}
+
+button.active {
+  color: #ffffff;
+  background: #3d5879;
+  border-color: #5f84ad;
 }
 
 #viewport-area {

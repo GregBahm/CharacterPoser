@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CharacterRig } from './rig.ts';
-import { CONTROL_JOINTS, JointId, PoseGraph } from './pose.ts';
+import { CONTROL_JOINTS, CONTROL_JOINTS_BY_VIEW, ControlView, JointId, PoseGraph } from './pose.ts';
 import { AppState, COLORS, pointColor } from './state.ts';
 
 /** Shift (or the right mouse button) makes a manipulation carry the node's subtree. */
@@ -19,6 +19,10 @@ const ORBIT_PITCH_LIMIT = THREE.MathUtils.degToRad(89);
 const RING_RADIUS = 0.09;
 const RING_TUBE = 0.007;
 
+function detailScale(view: ControlView): number {
+  return view === 'body' ? 1 : view === 'face' ? 0.18 : 0.13;
+}
+
 /** Draggable control-point spheres drawn on top of the character. */
 export class ControlPoints {
   group = new THREE.Group();
@@ -28,7 +32,7 @@ export class ControlPoints {
     private pose: PoseGraph,
     private state: AppState,
   ) {
-    const geo = new THREE.SphereGeometry(0.024, 20, 14);
+    const geo = new THREE.SphereGeometry(1, 20, 14);
     for (const id of CONTROL_JOINTS) {
       const mat = new THREE.MeshBasicMaterial({
         color: COLORS.free,
@@ -45,14 +49,19 @@ export class ControlPoints {
   }
 
   update() {
+    const visible = new Set(CONTROL_JOINTS_BY_VIEW[this.state.activeView]);
+    const detailSize = this.state.activeView === 'face' ? 0.006 : 0.005;
     for (const [id, sphere] of this.spheres) {
+      sphere.visible = visible.has(id);
+      const anchor = id === 'Head' || id === 'LeftHand' || id === 'RightHand';
+      sphere.scale.setScalar(this.state.activeView === 'body' ? 0.024 : anchor ? 0.009 : detailSize);
       sphere.position.copy(this.pose.get(id).pos);
       (sphere.material as THREE.MeshBasicMaterial).color.setHex(pointColor(this.state.selected === id));
     }
   }
 
   get meshes(): THREE.Mesh[] {
-    return [...this.spheres.values()];
+    return [...this.spheres.values()].filter((sphere) => sphere.visible);
   }
 }
 
@@ -132,7 +141,11 @@ export class Widgets {
   helperWorldPos(target = new THREE.Vector3()): THREE.Vector3 {
     const id = this.state.selected!;
     const node = this.pose.get(id);
-    return this.pose.forward(id, target).multiplyScalar(HELPER_OFFSET).add(node.pos);
+    return this.pose.forward(id, target).multiplyScalar(HELPER_OFFSET * this.widgetScale()).add(node.pos);
+  }
+
+  private widgetScale(): number {
+    return detailScale(this.state.activeView);
   }
 
   update() {
@@ -140,21 +153,27 @@ export class Widgets {
     this.group.visible = id !== null;
     if (!id) return;
     const node = this.pose.get(id);
+    const scale = this.widgetScale();
 
     // Torus axis is +Z, so the node's quat tips it perpendicular to the aim.
     this.ring.position.copy(node.pos);
     this.ring.quaternion.copy(node.quat);
+    this.ring.scale.setScalar(scale);
     this.ringPick.position.copy(node.pos);
     this.ringPick.quaternion.copy(node.quat);
+    this.ringPick.scale.setScalar(scale);
 
-    this.stretchRing.visible = node.parent !== null;
+    this.stretchRing.visible = this.pose.hasStretchSegment(id);
     this.stretchRing.position.copy(node.pos);
     this.stretchRing.quaternion.copy(node.quat);
+    this.stretchRing.scale.setScalar(scale);
     this.setStretchRingRadius(RING_RADIUS * this.pose.segmentStretch(id));
 
     const helperPos = this.helperWorldPos();
     this.helper.position.copy(helperPos);
+    this.helper.scale.setScalar(scale);
     this.helperPick.position.copy(helperPos);
+    this.helperPick.scale.setScalar(scale);
 
     this.linePositions.set([node.pos.x, node.pos.y, node.pos.z, helperPos.x, helperPos.y, helperPos.z]);
     (this.line.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
@@ -414,7 +433,9 @@ export class Interaction {
 
     // Wheel-up brings the point toward the camera, wheel-down pushes it away
     // (along the view direction, so this stays "depth" from any orbit angle).
-    const depthStep = this.camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(notch * Z_STEP);
+    const depthStep = this.camera
+      .getWorldDirection(new THREE.Vector3())
+      .multiplyScalar(notch * Z_STEP * detailScale(this.state.activeView));
     if (d && (d.mode === 'point' || d.mode === 'subtree')) {
       this.pose.translate(d.joint, depthStep, d.mode === 'subtree');
       this.applyPose();
@@ -430,7 +451,7 @@ export class Interaction {
 
     // No drag: zoom the canvas.
     const offset = new THREE.Vector3().subVectors(this.camera.position, this.cameraTarget);
-    const dist = THREE.MathUtils.clamp(offset.length() * Math.pow(1.12, notch), 0.8, 20);
+    const dist = THREE.MathUtils.clamp(offset.length() * Math.pow(1.12, notch), 0.08, 20);
     offset.setLength(dist);
     this.camera.position.copy(this.cameraTarget).add(offset);
   };

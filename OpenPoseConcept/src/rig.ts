@@ -1,6 +1,14 @@
 import * as THREE from 'three';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
-import { frameQuat, JOINT_DEFS, JointId, SolvedSkeleton } from './pose.ts';
+import {
+  frameQuat,
+  isDetailJoint,
+  isFingerJoint,
+  JOINT_DEFS,
+  JointDef,
+  JointId,
+  SolvedSkeleton,
+} from './pose.ts';
 
 interface BoneBinding {
   id: JointId;
@@ -85,6 +93,9 @@ export class CharacterRig {
     }
     for (const def of JOINT_DEFS) {
       if (!def.parent) continue;
+      // Body leaves (hands/head) must keep their existing behavior when
+      // detail controls are present. Finger segments still aim at each other.
+      if (isDetailJoint(def.id) && !(isFingerJoint(def.id) && isFingerJoint(def.parent))) continue;
       const list = rig.childBindings.get(def.parent) ?? [];
       list.push(rig.bindings.get(def.id)!);
       rig.childBindings.set(def.parent, list);
@@ -120,6 +131,9 @@ export class CharacterRig {
     const v1 = new THREE.Vector3();
     const s0 = new THREE.Vector3();
     const s1 = new THREE.Vector3();
+    const tmpParentRotation = new THREE.Matrix4();
+    const scaleM = new THREE.Matrix4();
+    const invScaleM = new THREE.Matrix4();
 
     // Reset every mapped bone to bind-local, scaling its offset from the
     // parent so the bone length matches the solved joint spacing.
@@ -132,7 +146,8 @@ export class CharacterRig {
         if (bindLen > 1e-6) stretch = curLen / bindLen;
       }
       stretchOf.set(id, stretch);
-      b.bone.position.copy(b.bindLocalPos).multiplyScalar(stretch);
+      b.bone.position.copy(b.bindLocalPos);
+      if (!isDetailJoint(id)) b.bone.position.multiplyScalar(stretch);
       b.bone.quaternion.copy(b.bindLocalQuat);
       b.bone.scale.setScalar(1);
       b.bone.updateMatrix();
@@ -147,15 +162,21 @@ export class CharacterRig {
       .applyMatrix4(new THREE.Matrix4().copy(hipsParent.matrixWorld).invert());
     hips.bone.updateMatrix();
 
-    // Root -> leaves (JOINT_DEFS order): compute each bone's world orientation
-    // directly from bind data, then convert to bone-local.
-    for (const def of JOINT_DEFS) {
+    const applyOrientation = (def: JointDef, positionDirectly: boolean) => {
       const binding = this.bindings.get(def.id)!;
       const bone = binding.bone;
       const delta = solved.rot.get(def.id)!;
       const jointPos = solved.pos.get(def.id)!;
       const jointBind = this.bindWorldPositions.get(def.id)!;
       const children = this.childBindings.get(def.id);
+
+      if (positionDirectly) {
+        bone.parent!.updateWorldMatrix(true, false);
+        bone.position
+          .copy(jointPos)
+          .applyMatrix4(new THREE.Matrix4().copy(bone.parent!.matrixWorld).invert());
+        bone.updateMatrix();
+      }
 
       const targetWorld = delta.clone().multiply(binding.bindWorldQuat);
 
@@ -191,28 +212,52 @@ export class CharacterRig {
       // Leaves (head/hands/feet) keep targetWorld = delta * bind: they follow
       // their node's accumulated aim/twist exactly.
 
-      bone.parent!.getWorldQuaternion(tmpParentQuat);
+      bone.parent!.updateWorldMatrix(true, false);
+      tmpParentRotation.extractRotation(bone.parent!.matrixWorld);
+      tmpParentQuat.setFromRotationMatrix(tmpParentRotation);
       bone.quaternion.copy(tmpParentQuat.invert().multiply(targetWorld));
       bone.updateMatrix();
       bone.updateWorldMatrix(false, false);
+    };
+
+    const applyAxialStretch = (detail: boolean) => {
+      for (const def of JOINT_DEFS) {
+        if (isDetailJoint(def.id) !== detail) continue;
+        const binding = this.bindings.get(def.id)!;
+        if (!binding.stretchAxis) continue;
+        const child = this.childBindings.get(def.id)![0];
+        const stretch = stretchOf.get(child.id) ?? 1;
+        if (Math.abs(stretch - 1) < 1e-6) continue;
+        axialScale(scaleM, binding.stretchAxis, stretch);
+        axialScale(invScaleM, binding.stretchAxis, 1 / stretch);
+        binding.bone.matrix.multiply(scaleM);
+        child.bone.matrix.premultiply(invScaleM);
+      }
+    };
+
+    // Body root -> leaves: compute each bone's world orientation directly
+    // from bind data, then convert to bone-local.
+    for (const def of JOINT_DEFS) {
+      if (isDetailJoint(def.id)) continue;
+      applyOrientation(def, false);
     }
 
-    // Axial stretch: segment bones scale along their child axis. The child's
-    // local matrix is pre-multiplied by the inverse so it (and the rest of
-    // the chain) keeps its own solved placement.
-    const scaleM = new THREE.Matrix4();
-    const invScaleM = new THREE.Matrix4();
+    // Apply body stretch before placing details because the MPFB skeleton has
+    // helper bones between several mapped body joints.
+    applyAxialStretch(false);
+
+    // The detailed controls may skip helper/metacarpal bones in the asset.
+    // Place each one in world space after its body ancestors are posed, then
+    // orient it. Parent-before-child order keeps finger chains coherent.
+    this.root.updateWorldMatrix(true, true);
     for (const def of JOINT_DEFS) {
-      const b = this.bindings.get(def.id)!;
-      if (!b.stretchAxis) continue;
-      const child = this.childBindings.get(def.id)![0];
-      const s = stretchOf.get(child.id) ?? 1;
-      if (Math.abs(s - 1) < 1e-6) continue;
-      axialScale(scaleM, b.stretchAxis, s);
-      axialScale(invScaleM, b.stretchAxis, 1 / s);
-      b.bone.matrix.multiply(scaleM);
-      child.bone.matrix.premultiply(invScaleM);
+      if (!isDetailJoint(def.id)) continue;
+      applyOrientation(def, true);
     }
+
+    // Finger joints are directly parented, so their stretch/counter-stretch
+    // pass can safely run after their exact world positions are established.
+    applyAxialStretch(true);
 
     this.root.updateWorldMatrix(true, true);
   }
@@ -251,12 +296,53 @@ const BONE_ALIASES: Partial<Record<JointId, string>> = {
   RightUpLeg: 'upperleg01R',
   RightLeg: 'lowerleg01R',
   RightFoot: 'footR',
+  LeftThumb1: 'finger1-1L',
+  LeftThumb2: 'finger1-2L',
+  LeftThumb3: 'finger1-3L',
+  LeftIndex1: 'finger2-1L',
+  LeftIndex2: 'finger2-2L',
+  LeftIndex3: 'finger2-3L',
+  LeftMiddle1: 'finger3-1L',
+  LeftMiddle2: 'finger3-2L',
+  LeftMiddle3: 'finger3-3L',
+  LeftRing1: 'finger4-1L',
+  LeftRing2: 'finger4-2L',
+  LeftRing3: 'finger4-3L',
+  LeftPinky1: 'finger5-1L',
+  LeftPinky2: 'finger5-2L',
+  LeftPinky3: 'finger5-3L',
+  RightThumb1: 'finger1-1R',
+  RightThumb2: 'finger1-2R',
+  RightThumb3: 'finger1-3R',
+  RightIndex1: 'finger2-1R',
+  RightIndex2: 'finger2-2R',
+  RightIndex3: 'finger2-3R',
+  RightMiddle1: 'finger3-1R',
+  RightMiddle2: 'finger3-2R',
+  RightMiddle3: 'finger3-3R',
+  RightRing1: 'finger4-1R',
+  RightRing2: 'finger4-2R',
+  RightRing3: 'finger4-3R',
+  RightPinky1: 'finger5-1R',
+  RightPinky2: 'finger5-2R',
+  RightPinky3: 'finger5-3R',
+  Jaw: 'jaw',
+  LeftEye: 'eyeL',
+  RightEye: 'eyeR',
+  LeftBrow: 'oculi01L',
+  RightBrow: 'oculi01R',
+  UpperLip: 'oris05',
+  LowerLip: 'oris01',
+  LeftMouthCorner: 'risorius03L',
+  RightMouthCorner: 'risorius03R',
+  LeftCheek: 'levator05L',
+  RightCheek: 'levator05R',
 };
 
 /** Find either a native character bone alias or a Mixamo joint name. */
 function findBone(root: THREE.Object3D, id: JointId): THREE.Bone | null {
   let found: THREE.Bone | null = null;
-  const alias = BONE_ALIASES[id];
+  const alias = BONE_ALIASES[id]?.replace(/[^A-Za-z0-9]/g, '');
   root.traverse((obj) => {
     if (found || !(obj as THREE.Bone).isBone) return;
     const clean = obj.name.replace(/[^A-Za-z0-9]/g, '');

@@ -3,8 +3,8 @@
 Direct-manipulation posing prototype (second interaction-model concept, after `HikConcept`).
 There is no IK solver: the body is a tree of free-floating control points that are moved
 directly, OpenPose-style, and the mesh stretches to fit the points wherever they go.
-The tool will eventually drive AI image generation (ComfyUI controlnet); body posing first,
-hands/face and multi-character scenes later.
+The same model extends into close-up finger and bone-driven facial controls. The tool will
+eventually drive AI image generation through ComfyUI controlnet.
 
 ## Running
 
@@ -40,15 +40,19 @@ node's children rigidly as if they were parented to it.**
 - **Alt + left-drag** orbits (tumbles) the camera around its target, Maya/Unity style;
   **middle-drag** pans; **mousewheel** (not dragging) zooms.
 - **Escape** deselects; **Reset Pose** returns to the bind pose.
+- Use the **Body**, **Face**, **L Hand**, and **R Hand** tabs to switch control maps. The detail
+  tabs frame the selected area closely and expose its facial or finger control points. You can
+  also double-click the head or either hand on the body map to expand it.
 
 ## Architecture
 
-- `src/pose.ts` — the pose model. 13 control points (`CONTROL_JOINTS`) in the design's control
-  tree (`CONTROL_PARENT`), each with a world position and an accumulated world-rotation delta.
+- `src/pose.ts` — the pose model. Body, finger, and facial control points in the design's
+  control tree (`CONTROL_PARENT`), each with a world position and an accumulated world-rotation delta.
   Operations: `translate`, `aimAt`, `twist` — each takes a `withChildren` flag; rotations pivot
-  on the node and optionally carry the subtree. `solveSkeleton()` derives all 20 Mixamo joints: sockets/neck ride
-  rigidly on their control, spine mids interpolate (and slerp twist) along Hips→Chest.
-- `src/rig.ts` — FBX loading, Mixamo bone mapping, and fitting bones to a solved skeleton.
+  on the node and optionally carry the subtree. `solveSkeleton()` derives the complete body and
+  detail skeleton: sockets/neck ride rigidly on their control, and spine mids interpolate (and
+  slerp twist) along Hips→Chest.
+- `src/rig.ts` — FBX loading, MPFB/Mixamo bone mapping, and fitting bones to a solved skeleton.
   Stateless per call: each bone's orientation = aim-correction × rotation-delta × bind, and each
   segment bone is scaled along its child axis by solvedLength / bindLength (plain axial stretch,
   no volume preservation), with the child counter-scaled so the stretch doesn't propagate.

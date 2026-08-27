@@ -20,17 +20,17 @@ Settled up front so later items don't have to be bolted on:
 - **ComfyUI integration lives server-side.** Pushing poses, running pose estimation on photos,
   and the ComfyUI connection settings all go through the backend (ComfyUI/Python), not the
   browser.
-- **Face rig.** X Bot has no face rig, so the character model gets swapped for one with a face
-  *before* hand/face posing.
+- **Face rig.** The default MPFB character provides the finger and facial bones used by the
+  detailed hand/face controls.
 
 ## Interaction
 
 - [x] **Shift-drag cascades down the body.** Holding Shift while dragging a point, twisting the
       ring, or moving the direction helper carries the node's children as if parented to it.
       (Right mouse button currently does the same; may be freed up later.)
-- [ ] **Swap the character model.** Set the 3D model for a character and replace it — needed
-      before face work since X Bot has no face rig.
-- [ ] **Hands and face.** Zoom in on the hands and face and pose them with the same
+- [x] **Swap the character model.** The MPFB character replaces X Bot as the default and its
+      native skeleton is mapped into the posing tool.
+- [x] **Hands and face.** Zoom in on the hands and face and pose them with the same
       control-point model (finger bones; facial bones/blendshapes on the new model).
 
 ## Persistence (local file server)

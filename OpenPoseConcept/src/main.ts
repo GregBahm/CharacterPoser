@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CharacterRig } from './rig.ts';
-import { PoseGraph } from './pose.ts';
+import { CONTROL_JOINTS_BY_VIEW, ControlView, PoseGraph } from './pose.ts';
 import { ControlPoints, Interaction, Widgets } from './interaction.ts';
 import { AppState } from './state.ts';
 import { UI } from './ui.ts';
@@ -70,11 +70,43 @@ async function init() {
   scene.add(points.group, widgets.group);
 
   const interaction = new Interaction({ canvas, camera, cameraTarget, rig, pose, state, points, widgets });
+
+  const focusControls = (view: ControlView) => {
+    const direction = new THREE.Vector3().subVectors(camera.position, cameraTarget);
+    if (direction.lengthSq() < 1e-8) direction.set(0, 0, 1);
+    direction.normalize();
+
+    if (view === 'body') {
+      cameraTarget.set(0, 0.95, 0);
+      camera.position.copy(cameraTarget).addScaledVector(direction, 4.2);
+    } else {
+      const ids = CONTROL_JOINTS_BY_VIEW[view].slice(1);
+      cameraTarget.set(0, 0, 0);
+      for (const id of ids) cameraTarget.add(pose.get(id).pos);
+      cameraTarget.multiplyScalar(1 / ids.length);
+      camera.position.copy(cameraTarget).addScaledVector(direction, view === 'face' ? 0.42 : 0.32);
+    }
+    camera.lookAt(cameraTarget);
+    camera.updateMatrixWorld();
+  };
+
   new UI(state, () => {
     pose.reset();
     interaction.applyPose();
+    focusControls(state.activeView);
     state.emit();
-  });
+  }, focusControls);
+
+  const requestedView = params.get('view');
+  if (requestedView && ['body', 'leftHand', 'rightHand', 'face'].includes(requestedView)) {
+    const buttonId: Record<ControlView, string> = {
+      body: 'btn-view-body',
+      leftHand: 'btn-view-left-hand',
+      rightHand: 'btn-view-right-hand',
+      face: 'btn-view-face',
+    };
+    document.getElementById(buttonId[requestedView as ControlView])!.click();
+  }
 
   // Scripted manipulations for automated verification.
   if (params.has('testdrag')) {
@@ -97,6 +129,17 @@ async function init() {
     pose.twist('Hips', 0.6, true);
     interaction.applyPose();
   }
+  if (params.has('testhand')) {
+    pose.translate('LeftIndex3', new THREE.Vector3(0, 0.02, 0.015), false);
+    interaction.applyPose();
+  }
+  if (params.has('testface')) {
+    pose.translate('Jaw', new THREE.Vector3(0, -0.025, 0.01), true);
+    interaction.applyPose();
+  }
+  if (params.has('testreset')) {
+    document.getElementById('btn-reset')!.click();
+  }
   if (params.has('select')) {
     state.select((params.get('select') as never) || 'Head');
   }
@@ -116,6 +159,10 @@ async function init() {
       `LHand node: ${fmt(pose.get('LeftHand').pos)}`,
       `LHand bone: ${fmt(rig.getBone('LeftHand').getWorldPosition(new THREE.Vector3()))}`,
       `LFoot bone: ${fmt(rig.getBone('LeftFoot').getWorldPosition(new THREE.Vector3()))}`,
+      `LIndex tip node: ${fmt(pose.get('LeftIndex3').pos)}`,
+      `LIndex tip bone: ${fmt(rig.getBone('LeftIndex3').getWorldPosition(new THREE.Vector3()))}`,
+      `Jaw node: ${fmt(pose.get('Jaw').pos)}`,
+      `Jaw bone: ${fmt(rig.getBone('Jaw').getWorldPosition(new THREE.Vector3()))}`,
     ];
     el.textContent = lines.join(' || ');
     el.hidden = false;
