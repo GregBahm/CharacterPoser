@@ -14,6 +14,8 @@ const Z_STEP = 0.05;
 const HELPER_OFFSET = 0.24;
 /** Radians of camera orbit per pixel of Alt-drag (Maya/Unity tumble feel). */
 const ORBIT_SPEED = 0.008;
+/** Exponential camera-distance change per horizontal pixel of Alt + right-drag. */
+const ZOOM_DRAG_SPEED = 0.01;
 /** Keep the orbit pitch this far from straight up/down so the camera never flips. */
 const ORBIT_PITCH_LIMIT = THREE.MathUtils.degToRad(89);
 const RING_RADIUS = 0.09;
@@ -186,7 +188,8 @@ type Drag =
   | { mode: 'twist'; joint: JointId; axis: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3; lastAngle: number; withChildren: boolean }
   | { mode: 'twist-pixels'; joint: JointId; lastX: number; withChildren: boolean }
   | { mode: 'pan'; lastX: number; lastY: number }
-  | { mode: 'orbit'; lastX: number; lastY: number };
+  | { mode: 'orbit'; lastX: number; lastY: number }
+  | { mode: 'zoom'; lastX: number };
 
 /**
  * Pointer handling for the canvas. By default a manipulation affects the
@@ -196,8 +199,8 @@ type Drag =
  *  - drag a point: move it in the view XY plane
  *  - mousewheel while dragging: move in z-space instead
  *  - drag the selected node's twist ring / direction helper: rotate it
- *  - middle-drag: pan; alt + left-drag: orbit (tumble) around the camera
- *    target; mousewheel (no drag): zoom
+ *  - Alt + left-drag: orbit; middle-drag: pan; Alt + right-drag:
+ *    zoom; mousewheel (no drag): zoom
  */
 export class Interaction {
   private canvas: HTMLCanvasElement;
@@ -233,6 +236,7 @@ export class Interaction {
     this.canvas.addEventListener('pointerdown', this.onPointerDown);
     this.canvas.addEventListener('pointermove', this.onPointerMove);
     this.canvas.addEventListener('pointerup', this.onPointerUp);
+    this.canvas.addEventListener('pointercancel', this.onPointerUp);
     this.canvas.addEventListener('wheel', this.onWheel, { passive: false });
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     // Stop middle-click autoscroll.
@@ -284,20 +288,28 @@ export class Interaction {
   private onPointerDown = (e: PointerEvent) => {
     if (this.drag) return;
 
+    if (e.altKey && e.button === 0) {
+      e.preventDefault();
+      this.drag = { mode: 'orbit', lastX: e.clientX, lastY: e.clientY };
+      this.canvas.style.cursor = 'grabbing';
+      this.canvas.setPointerCapture(e.pointerId);
+      return;
+    }
     if (e.button === 1) {
       e.preventDefault();
       this.drag = { mode: 'pan', lastX: e.clientX, lastY: e.clientY };
+      this.canvas.style.cursor = 'move';
+      this.canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (e.altKey && e.button === 2) {
+      e.preventDefault();
+      this.drag = { mode: 'zoom', lastX: e.clientX };
+      this.canvas.style.cursor = 'ew-resize';
       this.canvas.setPointerCapture(e.pointerId);
       return;
     }
     if (e.button !== 0 && e.button !== 2) return;
-
-    if (e.button === 0 && e.altKey) {
-      e.preventDefault();
-      this.drag = { mode: 'orbit', lastX: e.clientX, lastY: e.clientY };
-      this.canvas.setPointerCapture(e.pointerId);
-      return;
-    }
 
     this.setRay(e);
 
@@ -388,6 +400,11 @@ export class Interaction {
       d.lastY = e.clientY;
       return;
     }
+    if (d.mode === 'zoom') {
+      this.zoomByFactor(Math.exp((e.clientX - d.lastX) * ZOOM_DRAG_SPEED));
+      d.lastX = e.clientX;
+      return;
+    }
 
     this.setRay(e);
 
@@ -422,6 +439,7 @@ export class Interaction {
   private onPointerUp = (e: PointerEvent) => {
     if (!this.drag) return;
     this.drag = null;
+    this.canvas.style.cursor = 'default';
     if (this.canvas.hasPointerCapture(e.pointerId)) this.canvas.releasePointerCapture(e.pointerId);
   };
 
@@ -450,11 +468,14 @@ export class Interaction {
     if (d) return; // no zoom mid-twist/pan
 
     // No drag: zoom the canvas.
-    const offset = new THREE.Vector3().subVectors(this.camera.position, this.cameraTarget);
-    const dist = THREE.MathUtils.clamp(offset.length() * Math.pow(1.12, notch), 0.08, 20);
-    offset.setLength(dist);
-    this.camera.position.copy(this.cameraTarget).add(offset);
+    this.zoomByFactor(Math.pow(1.12, notch));
   };
+
+  private zoomByFactor(factor: number) {
+    const offset = new THREE.Vector3().subVectors(this.camera.position, this.cameraTarget);
+    offset.setLength(THREE.MathUtils.clamp(offset.length() * factor, 0.08, 20));
+    this.camera.position.copy(this.cameraTarget).add(offset);
+  }
 
   /**
    * Tumble the camera about its target: yaw around world up, pitch around

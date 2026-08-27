@@ -36,8 +36,8 @@ node's children rigidly as if they were parented to it.**
     the twist ring; it grows when the segment is longer than natural, shrinks when shorter.
   - All widgets live in the node's local frame: the helper always sits along the node's
     current aim (world +Z at rest), and the rings lie perpendicular to it.
-- **Alt + left-drag** orbits (tumbles) the camera around its target, Maya/Unity style;
-  **middle-drag** pans; **mousewheel** (not dragging) zooms.
+- Unity-style camera controls: **Alt + left-drag** orbits, **middle-drag** pans,
+  and **Alt + right-drag left/right** zooms. **Mousewheel** (not dragging) also zooms.
 - **Escape** deselects; **Reset Pose** returns to the bind pose.
 - Use the **Body**, **Face**, **L Hand**, and **R Hand** tabs to switch control maps; switching
   never moves the camera. Click the **magnifying glass** beside a tab to also frame that area in
@@ -55,7 +55,8 @@ node's children rigidly as if they were parented to it.**
 - `src/rig.ts` — FBX loading, MPFB/Mixamo bone mapping, and fitting bones to a solved skeleton.
   Stateless per call: each bone's orientation = aim-correction × rotation-delta × bind, and each
   segment bone is scaled along its child axis by solvedLength / bindLength (plain axial stretch,
-  no volume preservation), with the child counter-scaled so the stretch doesn't propagate.
+  no volume preservation), with downstream joints restored to exact world transforms so the
+  stretch doesn't propagate.
   Leaf bones (head/hands/feet) follow their node's rotation delta exactly.
 - `src/interaction.ts` — control spheres, the widgets, and all pointer/wheel handling.
 - `src/ui.ts`, `src/state.ts`, `src/main.ts` — body-map sidebar, selection state, scene bootstrap.

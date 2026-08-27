@@ -5,7 +5,6 @@ import {
   isDetailJoint,
   isFingerJoint,
   JOINT_DEFS,
-  JointDef,
   JointId,
   SolvedSkeleton,
 } from './pose.ts';
@@ -14,9 +13,8 @@ interface BoneBinding {
   id: JointId;
   parent: JointId | null;
   bone: THREE.Bone;
-  bindLocalPos: THREE.Vector3;
-  bindLocalQuat: THREE.Quaternion;
   bindWorldQuat: THREE.Quaternion;
+  bindWorldScale: THREE.Vector3;
   /**
    * For single-child segment bones: unit direction (bone-local) toward the
    * child joint. The bone stretches along this axis to span the solved
@@ -81,9 +79,8 @@ export class CharacterRig {
         id: def.id,
         parent: def.parent,
         bone,
-        bindLocalPos: bone.position.clone(),
-        bindLocalQuat: bone.quaternion.clone(),
         bindWorldQuat: bone.getWorldQuaternion(new THREE.Quaternion()),
+        bindWorldScale: bone.getWorldScale(new THREE.Vector3()),
         stretchAxis: null,
       });
       // Bone matrices are written explicitly in applyPose (axial stretch is
@@ -102,7 +99,10 @@ export class CharacterRig {
     }
     for (const [id, children] of rig.childBindings) {
       if (children.length !== 1) continue;
-      const axis = children[0].bindLocalPos.clone();
+      const binding = rig.bindings.get(id)!;
+      const axis = new THREE.Vector3()
+        .subVectors(rig.bindWorldPositions.get(children[0].id)!, rig.bindWorldPositions.get(id)!)
+        .applyQuaternion(binding.bindWorldQuat.clone().invert());
       if (axis.lengthSq() > 1e-10) rig.bindings.get(id)!.stretchAxis = axis.normalize();
     }
 
@@ -122,61 +122,28 @@ export class CharacterRig {
    * points at its solved children. Each segment bone (one child) is then
    * scaled along its child axis by solvedLength / bindLength -- a plain axial
    * stretch, no volume preservation -- so the skin actually lengthens or
-   * shortens to meet the control points. Children counter-scale so the
-   * stretch does not propagate down the chain.
+   * shortens to meet the control points. Every downstream mapped joint gets
+   * an exact world transform so inherited scale stops at the segment.
    */
   applyPose(solved: SolvedSkeleton) {
-    const tmpParentQuat = new THREE.Quaternion();
     const v0 = new THREE.Vector3();
     const v1 = new THREE.Vector3();
     const s0 = new THREE.Vector3();
     const s1 = new THREE.Vector3();
-    const tmpParentRotation = new THREE.Matrix4();
+    const desiredWorld = new THREE.Matrix4();
+    const parentInverse = new THREE.Matrix4();
     const scaleM = new THREE.Matrix4();
-    const invScaleM = new THREE.Matrix4();
 
-    // Reset every mapped bone to bind-local, scaling its offset from the
-    // parent so the bone length matches the solved joint spacing.
-    const stretchOf = new Map<JointId, number>();
-    for (const [id, b] of this.bindings) {
-      let stretch = 1;
-      if (b.parent) {
-        const bindLen = this.bindWorldPositions.get(id)!.distanceTo(this.bindWorldPositions.get(b.parent)!);
-        const curLen = solved.pos.get(id)!.distanceTo(solved.pos.get(b.parent)!);
-        if (bindLen > 1e-6) stretch = curLen / bindLen;
-      }
-      stretchOf.set(id, stretch);
-      b.bone.position.copy(b.bindLocalPos);
-      if (!isDetailJoint(id)) b.bone.position.multiplyScalar(stretch);
-      b.bone.quaternion.copy(b.bindLocalQuat);
-      b.bone.scale.setScalar(1);
-      b.bone.updateMatrix();
-    }
-
-    // Translate the hips so their world position matches the solve.
-    const hips = this.bindings.get('Hips')!;
-    const hipsParent = hips.bone.parent!;
-    hipsParent.updateWorldMatrix(true, false);
-    hips.bone.position
-      .copy(solved.pos.get('Hips')!)
-      .applyMatrix4(new THREE.Matrix4().copy(hipsParent.matrixWorld).invert());
-    hips.bone.updateMatrix();
-
-    const applyOrientation = (def: JointDef, positionDirectly: boolean) => {
+    // Every mapped joint gets an exact world transform. This cancels any
+    // scale inherited through MPFB helper bones before applying the joint's
+    // own axial stretch, so scaling one segment cannot lengthen descendants.
+    for (const def of JOINT_DEFS) {
       const binding = this.bindings.get(def.id)!;
       const bone = binding.bone;
       const delta = solved.rot.get(def.id)!;
       const jointPos = solved.pos.get(def.id)!;
       const jointBind = this.bindWorldPositions.get(def.id)!;
       const children = this.childBindings.get(def.id);
-
-      if (positionDirectly) {
-        bone.parent!.updateWorldMatrix(true, false);
-        bone.position
-          .copy(jointPos)
-          .applyMatrix4(new THREE.Matrix4().copy(bone.parent!.matrixWorld).invert());
-        bone.updateMatrix();
-      }
 
       const targetWorld = delta.clone().multiply(binding.bindWorldQuat);
 
@@ -213,51 +180,22 @@ export class CharacterRig {
       // their node's accumulated aim/twist exactly.
 
       bone.parent!.updateWorldMatrix(true, false);
-      tmpParentRotation.extractRotation(bone.parent!.matrixWorld);
-      tmpParentQuat.setFromRotationMatrix(tmpParentRotation);
-      bone.quaternion.copy(tmpParentQuat.invert().multiply(targetWorld));
-      bone.updateMatrix();
-      bone.updateWorldMatrix(false, false);
-    };
+      desiredWorld.compose(jointPos, targetWorld, binding.bindWorldScale);
+      parentInverse.copy(bone.parent!.matrixWorld).invert();
+      bone.matrix.copy(parentInverse).multiply(desiredWorld);
 
-    const applyAxialStretch = (detail: boolean) => {
-      for (const def of JOINT_DEFS) {
-        if (isDetailJoint(def.id) !== detail) continue;
-        const binding = this.bindings.get(def.id)!;
-        if (!binding.stretchAxis) continue;
-        const child = this.childBindings.get(def.id)![0];
-        const stretch = stretchOf.get(child.id) ?? 1;
-        if (Math.abs(stretch - 1) < 1e-6) continue;
-        axialScale(scaleM, binding.stretchAxis, stretch);
-        axialScale(invScaleM, binding.stretchAxis, 1 / stretch);
-        binding.bone.matrix.multiply(scaleM);
-        child.bone.matrix.premultiply(invScaleM);
+      if (binding.stretchAxis && children?.length === 1) {
+        const child = children[0];
+        const bindLength = this.bindWorldPositions.get(child.id)!.distanceTo(jointBind);
+        const solvedLength = solved.pos.get(child.id)!.distanceTo(jointPos);
+        if (bindLength > 1e-6) {
+          axialScale(scaleM, binding.stretchAxis, solvedLength / bindLength);
+          bone.matrix.multiply(scaleM);
+        }
       }
-    };
 
-    // Body root -> leaves: compute each bone's world orientation directly
-    // from bind data, then convert to bone-local.
-    for (const def of JOINT_DEFS) {
-      if (isDetailJoint(def.id)) continue;
-      applyOrientation(def, false);
+      bone.updateWorldMatrix(false, false);
     }
-
-    // Apply body stretch before placing details because the MPFB skeleton has
-    // helper bones between several mapped body joints.
-    applyAxialStretch(false);
-
-    // The detailed controls may skip helper/metacarpal bones in the asset.
-    // Place each one in world space after its body ancestors are posed, then
-    // orient it. Parent-before-child order keeps finger chains coherent.
-    this.root.updateWorldMatrix(true, true);
-    for (const def of JOINT_DEFS) {
-      if (!isDetailJoint(def.id)) continue;
-      applyOrientation(def, true);
-    }
-
-    // Finger joints are directly parented, so their stretch/counter-stretch
-    // pass can safely run after their exact world positions are established.
-    applyAxialStretch(true);
 
     this.root.updateWorldMatrix(true, true);
   }
