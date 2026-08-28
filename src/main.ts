@@ -104,8 +104,7 @@ async function init() {
   };
 
   const resetPose = () => {
-    pose.reset();
-    interaction.applyPose();
+    interaction.performPoseEdit(() => pose.reset());
     focusControls(state.activeView);
     state.emit();
     persistence?.notifySceneChanged();
@@ -142,6 +141,8 @@ async function init() {
       height: Math.max(1, Math.round(viewportArea.clientHeight)),
     }),
     applyPose: () => interaction.applyPose(),
+    applyPoseEdit: (edit) => interaction.performPoseEdit(edit),
+    clearPoseHistory: () => interaction.clearPoseHistory(),
     resetScene,
   });
   const scriptedTest = [...params.keys()].some((key) => key.startsWith('test'));

@@ -21,6 +21,8 @@ interface PersistenceContext {
   model: string;
   resolution(): { width: number; height: number };
   applyPose(): void;
+  applyPoseEdit(edit: () => void): void;
+  clearPoseHistory(): void;
   resetScene(): void;
 }
 
@@ -124,8 +126,7 @@ export class PersistenceController {
     const document = await this.client.loadPose(scope, id);
     this.suppressAutosave = true;
     try {
-      applyPoseDocument(this.context.pose, document);
-      this.context.applyPose();
+      this.context.applyPoseEdit(() => applyPoseDocument(this.context.pose, document));
     } finally {
       this.suppressAutosave = false;
     }
@@ -143,6 +144,7 @@ export class PersistenceController {
       const now = new Date().toISOString();
       this.current = { id: createDocumentId(name), name, createdAt: now };
       await this.client.saveSession(this.captureScene(now));
+      this.context.clearPoseHistory();
     } catch (cause) {
       this.current = previousSession;
       if (previousScene) this.applySceneState(previousScene);
@@ -167,6 +169,7 @@ export class PersistenceController {
     try {
       this.applySceneState(document);
       this.current = { id: document.id, name: document.name, createdAt: document.createdAt };
+      this.context.clearPoseHistory();
     } finally {
       this.suppressAutosave = false;
     }

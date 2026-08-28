@@ -53,6 +53,9 @@ node's children rigidly as if they were parented to it.**
     current aim (world +Z at rest), and the rings lie perpendicular to it.
 - Unity-style camera controls: **Alt + left-drag** orbits, **middle-drag** pans,
   and **Alt + right-drag left/right** zooms. **Mousewheel** (not dragging) also zooms.
+- Hovering brightens the exact control point, twist ring, or direction helper that will be
+  manipulated. **Ctrl+Z** undoes pose edits and **Ctrl+Shift+Z** redoes them (up to 50 steps);
+  camera navigation is not included in pose history.
 - **Escape** deselects; **Reset Pose** returns to the bind pose.
 - Use the **Body**, **Face**, **L Hand**, and **R Hand** tabs to switch control maps; switching
   never moves the camera. Click the **magnifying glass** beside a tab to also frame that area in

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CharacterRig } from './rig.ts';
 import { CONTROL_JOINTS, CONTROL_JOINTS_BY_VIEW, ControlView, JointId, PoseGraph } from './pose.ts';
 import { AppState, COLORS, pointColor } from './state.ts';
+import { applySceneControls, ControlTransformDocument, serializeAllControls } from './documents.ts';
 
 /** Shift (or the right mouse button) makes a manipulation carry the node's subtree. */
 function cascades(e: PointerEvent): boolean {
@@ -29,6 +30,7 @@ function detailScale(view: ControlView): number {
 export class ControlPoints {
   group = new THREE.Group();
   private spheres = new Map<JointId, THREE.Mesh>();
+  private hovered: JointId | null = null;
 
   constructor(
     private pose: PoseGraph,
@@ -58,8 +60,14 @@ export class ControlPoints {
       const anchor = id === 'Head' || id === 'LeftHand' || id === 'RightHand';
       sphere.scale.setScalar(this.state.activeView === 'body' ? 0.024 : anchor ? 0.009 : detailSize);
       sphere.position.copy(this.pose.get(id).pos);
-      (sphere.material as THREE.MeshBasicMaterial).color.setHex(pointColor(this.state.selected === id));
+      (sphere.material as THREE.MeshBasicMaterial).color.setHex(
+        pointColor(this.state.selected === id, this.hovered === id),
+      );
     }
+  }
+
+  setHovered(id: JointId | null) {
+    this.hovered = id;
   }
 
   get meshes(): THREE.Mesh[] {
@@ -86,6 +94,7 @@ export class Widgets {
   private helper: THREE.Mesh;
   private line: THREE.Line;
   private linePositions: Float32Array;
+  private hovered: 'ring' | 'helper' | null = null;
 
   constructor(
     private pose: PoseGraph,
@@ -150,12 +159,22 @@ export class Widgets {
     return detailScale(this.state.activeView);
   }
 
+  setHovered(target: 'ring' | 'helper' | null) {
+    this.hovered = target;
+  }
+
   update() {
     const id = this.state.selected;
     this.group.visible = id !== null;
     if (!id) return;
     const node = this.pose.get(id);
     const scale = this.widgetScale();
+    (this.ring.material as THREE.MeshBasicMaterial).color.setHex(
+      this.hovered === 'ring' ? COLORS.ringHover : COLORS.ring,
+    );
+    (this.helper.material as THREE.MeshBasicMaterial).color.setHex(
+      this.hovered === 'helper' ? COLORS.helperHover : COLORS.helper,
+    );
 
     // Torus axis is +Z, so the node's quat tips it perpendicular to the aim.
     this.ring.position.copy(node.pos);
@@ -191,6 +210,20 @@ type Drag =
   | { mode: 'orbit'; lastX: number; lastY: number }
   | { mode: 'zoom'; lastX: number };
 
+type PoseSnapshot = Record<JointId, ControlTransformDocument>;
+type WidgetTarget = 'ring' | 'helper';
+const HISTORY_LIMIT = 50;
+
+function snapshotsEqual(a: PoseSnapshot, b: PoseSnapshot): boolean {
+  for (const id of CONTROL_JOINTS) {
+    const left = a[id];
+    const right = b[id];
+    if (left.position.some((value, index) => value !== right.position[index])) return false;
+    if (left.rotation.some((value, index) => value !== right.rotation[index])) return false;
+  }
+  return true;
+}
+
 /**
  * Pointer handling for the canvas. By default a manipulation affects the
  * local node only; holding Shift (or using the right mouse button) cascades
@@ -214,6 +247,9 @@ export class Interaction {
   private onSceneChanged: () => void;
   private raycaster = new THREE.Raycaster();
   private drag: Drag | null = null;
+  private gestureStart: PoseSnapshot | null = null;
+  private undoStack: PoseSnapshot[] = [];
+  private redoStack: PoseSnapshot[] = [];
 
   constructor(opts: {
     canvas: HTMLCanvasElement;
@@ -240,12 +276,16 @@ export class Interaction {
     this.canvas.addEventListener('pointermove', this.onPointerMove);
     this.canvas.addEventListener('pointerup', this.onPointerUp);
     this.canvas.addEventListener('pointercancel', this.onPointerUp);
+    this.canvas.addEventListener('pointerleave', () => {
+      if (!this.drag) this.setHovered(null, null);
+    });
     this.canvas.addEventListener('wheel', this.onWheel, { passive: false });
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     // Stop middle-click autoscroll.
     this.canvas.addEventListener('mousedown', (e) => {
       if (e.button === 1) e.preventDefault();
     });
+    window.addEventListener('keydown', this.onKeyDown);
   }
 
   /** Called every frame. */
@@ -258,6 +298,68 @@ export class Interaction {
     this.rig.applyPose(this.pose.solveSkeleton());
     this.onSceneChanged();
   }
+
+  performPoseEdit(edit: () => void) {
+    const before = this.capturePose();
+    edit();
+    this.applyPose();
+    this.recordEdit(before);
+  }
+
+  undo() {
+    const previous = this.undoStack.pop();
+    if (!previous) return;
+    this.redoStack.push(this.capturePose());
+    this.restorePose(previous);
+  }
+
+  redo() {
+    const next = this.redoStack.pop();
+    if (!next) return;
+    this.undoStack.push(this.capturePose());
+    this.restorePose(next);
+  }
+
+  clearPoseHistory() {
+    this.gestureStart = null;
+    this.undoStack = [];
+    this.redoStack = [];
+  }
+
+  private capturePose(): PoseSnapshot {
+    return serializeAllControls(this.pose);
+  }
+
+  private restorePose(snapshot: PoseSnapshot) {
+    applySceneControls(this.pose, snapshot);
+    this.applyPose();
+  }
+
+  private beginPoseGesture() {
+    this.gestureStart = this.capturePose();
+  }
+
+  private commitPoseGesture() {
+    if (!this.gestureStart) return;
+    this.recordEdit(this.gestureStart);
+    this.gestureStart = null;
+  }
+
+  private recordEdit(before: PoseSnapshot) {
+    if (snapshotsEqual(before, this.capturePose())) return;
+    this.undoStack.push(before);
+    if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
+    this.redoStack = [];
+  }
+
+  private onKeyDown = (event: KeyboardEvent) => {
+    if (this.drag || !event.ctrlKey || event.key.toLowerCase() !== 'z' || event.repeat) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+    event.preventDefault();
+    if (event.shiftKey) this.redo();
+    else this.undo();
+  };
 
   private ndc(e: { clientX: number; clientY: number }): THREE.Vector2 {
     const rect = this.canvas.getBoundingClientRect();
@@ -289,11 +391,31 @@ export class Interaction {
     return best ? best.joint : null;
   }
 
+  private pickWidget(): WidgetTarget | null {
+    if (!this.state.selected) return null;
+    if (this.raycaster.intersectObject(this.widgets.helperPick, false).length > 0) return 'helper';
+    if (this.raycaster.intersectObject(this.widgets.ringPick, false).length > 0) return 'ring';
+    return null;
+  }
+
+  private setHovered(point: JointId | null, widget: WidgetTarget | null) {
+    this.points.setHovered(point);
+    this.widgets.setHovered(widget);
+    this.canvas.style.cursor = point || widget ? 'grab' : 'default';
+  }
+
+  private updateHover(e: { clientX: number; clientY: number }) {
+    this.setRay(e);
+    const widget = this.pickWidget();
+    this.setHovered(widget ? null : this.pickSphere(), widget);
+  }
+
   private onPointerDown = (e: PointerEvent) => {
     if (this.drag) return;
 
     if (e.altKey && e.button === 0) {
       e.preventDefault();
+      this.setHovered(null, null);
       this.drag = { mode: 'orbit', lastX: e.clientX, lastY: e.clientY };
       this.canvas.style.cursor = 'grabbing';
       this.canvas.setPointerCapture(e.pointerId);
@@ -301,6 +423,7 @@ export class Interaction {
     }
     if (e.button === 1) {
       e.preventDefault();
+      this.setHovered(null, null);
       this.drag = { mode: 'pan', lastX: e.clientX, lastY: e.clientY };
       this.canvas.style.cursor = 'move';
       this.canvas.setPointerCapture(e.pointerId);
@@ -308,6 +431,7 @@ export class Interaction {
     }
     if (e.altKey && e.button === 2) {
       e.preventDefault();
+      this.setHovered(null, null);
       this.drag = { mode: 'zoom', lastX: e.clientX };
       this.canvas.style.cursor = 'ew-resize';
       this.canvas.setPointerCapture(e.pointerId);
@@ -319,26 +443,30 @@ export class Interaction {
 
     // Widgets of the selected node take priority over the control spheres.
     const withChildren = cascades(e);
-    if (this.state.selected) {
+    const widget = this.pickWidget();
+    if (this.state.selected && widget) {
       const joint = this.state.selected;
-      if (this.raycaster.intersectObject(this.widgets.helperPick, false).length > 0) {
+      this.beginPoseGesture();
+      this.setHovered(null, widget);
+      if (widget === 'helper') {
         this.drag = { mode: 'aim', joint, target: this.widgets.helperWorldPos(), withChildren };
         this.canvas.setPointerCapture(e.pointerId);
         return;
       }
-      if (this.raycaster.intersectObject(this.widgets.ringPick, false).length > 0) {
-        this.drag = this.beginTwist(e, joint, withChildren);
-        this.canvas.setPointerCapture(e.pointerId);
-        return;
-      }
+      this.drag = this.beginTwist(e, joint, withChildren);
+      this.canvas.setPointerCapture(e.pointerId);
+      return;
     }
 
     const joint = this.pickSphere();
     if (!joint) {
+      this.setHovered(null, null);
       if (e.button === 0) this.state.select(null);
       return;
     }
     this.state.select(joint);
+    this.beginPoseGesture();
+    this.setHovered(joint, null);
 
     const center = this.pose.get(joint).pos;
     const planeHit = this.hitViewPlane(center);
@@ -372,14 +500,7 @@ export class Interaction {
 
   private onPointerMove = (e: PointerEvent) => {
     if (!this.drag) {
-      this.setRay(e);
-      let hover = this.pickSphere() !== null;
-      if (!hover && this.state.selected) {
-        hover =
-          this.raycaster.intersectObject(this.widgets.helperPick, false).length > 0 ||
-          this.raycaster.intersectObject(this.widgets.ringPick, false).length > 0;
-      }
-      this.canvas.style.cursor = hover ? 'grab' : 'default';
+      this.updateHover(e);
       return;
     }
 
@@ -444,9 +565,19 @@ export class Interaction {
 
   private onPointerUp = (e: PointerEvent) => {
     if (!this.drag) return;
+    const finished = this.drag;
     this.drag = null;
-    this.canvas.style.cursor = 'default';
+    if (
+      finished.mode === 'point' ||
+      finished.mode === 'subtree' ||
+      finished.mode === 'aim' ||
+      finished.mode === 'twist' ||
+      finished.mode === 'twist-pixels'
+    ) {
+      this.commitPoseGesture();
+    }
     if (this.canvas.hasPointerCapture(e.pointerId)) this.canvas.releasePointerCapture(e.pointerId);
+    this.updateHover(e);
   };
 
   private onWheel = (e: WheelEvent) => {

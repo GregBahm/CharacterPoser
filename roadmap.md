@@ -32,6 +32,10 @@ Settled up front so later items don't have to be bolted on:
       native skeleton is mapped into the posing tool.
 - [x] **Hands and face.** Zoom in on the hands and face and pose them with the same
       control-point model (finger bones; facial bones/blendshapes on the new model).
+- [x] **Manipulator hover feedback.** Brighten the exact point, twist ring, or direction helper
+      that will receive the next drag.
+- [x] **Pose undo/redo.** Keep 50 gesture-level pose edits with Ctrl+Z/Ctrl+Shift+Z while
+      leaving camera navigation outside pose history.
 
 ## Persistence (local file server)
 
