@@ -4,7 +4,9 @@ import { CONTROL_JOINTS_BY_VIEW, ControlView, PoseGraph } from './pose.ts';
 import { ControlPoints, Interaction, Widgets } from './interaction.ts';
 import { AppState } from './state.ts';
 import { UI } from './ui.ts';
+import { PersistenceController } from './persistence-controller.ts';
 
+const CHARACTER_MODEL = '/testMPFBPerson.fbx';
 const canvas = document.getElementById('scene-canvas') as HTMLCanvasElement;
 const viewportArea = document.getElementById('viewport-area') as HTMLElement;
 
@@ -58,7 +60,7 @@ resize();
 async function init() {
   const params = new URLSearchParams(location.search);
 
-  const rig = await CharacterRig.load(encodeURI('/testMPFBPerson.fbx'));
+  const rig = await CharacterRig.load(encodeURI(CHARACTER_MODEL));
   scene.add(rig.root);
 
   const pose = new PoseGraph(rig.bindWorldPositions);
@@ -69,7 +71,18 @@ async function init() {
   const widgets = new Widgets(pose, state);
   scene.add(points.group, widgets.group);
 
-  const interaction = new Interaction({ canvas, camera, cameraTarget, rig, pose, state, points, widgets });
+  let persistence: PersistenceController | null = null;
+  const interaction = new Interaction({
+    canvas,
+    camera,
+    cameraTarget,
+    rig,
+    pose,
+    state,
+    points,
+    widgets,
+    onSceneChanged: () => persistence?.notifySceneChanged(),
+  });
 
   const focusControls = (view: ControlView) => {
     const direction = new THREE.Vector3().subVectors(camera.position, cameraTarget);
@@ -90,12 +103,57 @@ async function init() {
     camera.updateMatrixWorld();
   };
 
-  new UI(state, () => {
+  const resetPose = () => {
     pose.reset();
     interaction.applyPose();
     focusControls(state.activeView);
     state.emit();
-  }, focusControls);
+    persistence?.notifySceneChanged();
+  };
+
+  const resetScene = () => {
+    pose.reset();
+    state.setView('body');
+    camera.fov = 40;
+    camera.updateProjectionMatrix();
+    focusControls('body');
+    interaction.applyPose();
+    state.emit();
+  };
+
+  new UI(
+    state,
+    resetPose,
+    (view) => {
+      focusControls(view);
+      persistence?.notifySceneChanged();
+    },
+    (view) => persistence?.notifyViewChanged(view),
+  );
+
+  persistence = new PersistenceController({
+    pose,
+    state,
+    camera,
+    cameraTarget,
+    model: CHARACTER_MODEL,
+    resolution: () => ({
+      width: Math.max(1, Math.round(viewportArea.clientWidth)),
+      height: Math.max(1, Math.round(viewportArea.clientHeight)),
+    }),
+    applyPose: () => interaction.applyPose(),
+    resetScene,
+  });
+  const scriptedTest = [...params.keys()].some((key) => key.startsWith('test'));
+  if (scriptedTest) {
+    persistence.reportStatus('Persistence disabled for scripted test mode.');
+  } else {
+    try {
+      await persistence.initialize();
+    } catch (cause) {
+      persistence.reportError(cause);
+    }
+  }
 
   const requestedView = params.get('view');
   if (requestedView && ['body', 'leftHand', 'rightHand', 'face'].includes(requestedView)) {
@@ -106,7 +164,9 @@ async function init() {
       rightHand: 'btn-frame-right-hand',
       face: 'btn-frame-face',
     };
-    document.getElementById(buttonId[requestedView as ControlView])!.click();
+    persistence.withoutAutosave(() => {
+      document.getElementById(buttonId[requestedView as ControlView])!.click();
+    });
   }
 
   // Scripted manipulations for automated verification.

@@ -35,12 +35,13 @@ Settled up front so later items don't have to be bolted on:
 
 ## Persistence (local file server)
 
-- [ ] **Pose library.** Save and load full-body poses, hand poses, and face poses as files.
-- [ ] **Sessions.** Save the scene state on every edit; create new sessions and load existing
+- [x] **Pose library.** Save and load full-body poses, hand poses, and face poses as files.
+- [x] **Sessions.** Save the scene state on every edit; create new sessions and load existing
       ones. This is where the `Scene` document is introduced.
 
 ## Scene
 
+- [ ] **Rendering modes** (lambert, basic, and path traced)
 - [ ] **Multiple characters** in one scene.
 - [ ] **Environment asset** added to the scene.
 - [ ] **Saved cameras.** Save camera positions (with resolution/FOV) and switch between the

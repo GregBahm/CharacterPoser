@@ -178,6 +178,7 @@ export class UI {
     private state: AppState,
     onReset: () => void,
     private onFrameView: (view: ControlView) => void,
+    private onViewChange: (view: ControlView) => void,
   ) {
     document.getElementById('btn-reset')!.addEventListener('click', onReset);
     for (const [view, buttonId] of Object.entries(VIEW_BUTTONS) as [ControlView, string][]) {
@@ -197,7 +198,9 @@ export class UI {
 
   /** Switch control maps only — the camera stays where the user left it. */
   private switchView(view: ControlView) {
+    if (this.state.activeView === view) return;
     this.state.setView(view);
+    this.onViewChange(view);
   }
 
   /** Switch to a view and move the camera to frame it. */

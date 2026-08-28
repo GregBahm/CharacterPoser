@@ -13,6 +13,17 @@
         <div id="loading">Loading character…</div>
         <div id="controls" hidden>
           <section>
+            <h2>Session: <span id="current-session">Starting...</span></h2>
+            <div class="form-row">
+              <select id="session-list" aria-label="Saved sessions"></select>
+              <button id="btn-load-session">Load</button>
+            </div>
+            <div class="form-row">
+              <input id="session-name" type="text" maxlength="80" placeholder="New session name" />
+              <button id="btn-new-session">New</button>
+            </div>
+          </section>
+          <section>
             <div class="view-tabs">
               <div class="view-tab">
                 <button id="btn-view-body" class="active">Body</button>
@@ -35,6 +46,16 @@
           <section>
             <h2 id="control-view-title">Body Controls</h2>
             <div id="bodymap"></div>
+          </section>
+          <section>
+            <h2>Pose Library: <span id="pose-scope">Full Body</span></h2>
+            <input id="pose-name" type="text" maxlength="80" placeholder="Pose name" />
+            <div class="form-row">
+              <select id="pose-list" aria-label="Saved poses"></select>
+              <button id="btn-load-pose">Load</button>
+              <button id="btn-save-pose">Save</button>
+            </div>
+            <p id="persistence-status" class="status" role="status"></p>
           </section>
           <section>
             <h2>Selected: <span id="joint-name">none</span></h2>

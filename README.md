@@ -17,6 +17,21 @@ npm run dev     # dev server at http://localhost:5173
 npm run build   # production build to dist/
 ```
 
+`npm run dev` starts Vite and the local persistence API together. Session and pose files are
+written under `data/` using atomic JSON-file replacement. Set `CHARACTER_POSER_DATA_DIR` before
+launching to keep them elsewhere for backup or transfer to another computer.
+
+## Persistence
+
+- The current session autosaves after pose, camera, reset, framing, and control-view changes.
+  On startup, the most recently updated valid session is loaded; if none exists, a default
+  session is created.
+- Use **New** to start a reset session or select a saved session and choose **Load**.
+- The pose library saves the currently active control scope. Full-body poses preserve the
+  character's current hand and facial details when loaded. Hand and face poses are stored
+  relative to their hand/head anchor, so they can be applied after those anchors move.
+- Invalid or unsupported files are reported in the sidebar instead of being overwritten.
+
 ## Interaction
 
 Everywhere, a modifier picks the scope: **plain manipulation affects only the node itself;
@@ -60,6 +75,9 @@ node's children rigidly as if they were parented to it.**
   Leaf bones (head/hands/feet) follow their node's rotation delta exactly.
 - `src/interaction.ts` — control spheres, the widgets, and all pointer/wheel handling.
 - `src/ui.ts`, `src/state.ts`, `src/main.ts` — body-map sidebar, selection state, scene bootstrap.
+- `src/documents.ts` — versioned scene/pose formats, strict validation, and pose conversion.
+- `src/persistence-controller.ts` — pose-library operations and serialized session autosave.
+- `server.mjs` — localhost-only Vite host and constrained atomic JSON file API.
 
 Debug query params: `?testdrag`, `?testsubtree`, `?testaim`, `?testtwist` apply scripted
 manipulations; `?debug` prints joint positions; `?select=<JointId>` preselects a node.

@@ -211,6 +211,7 @@ export class Interaction {
   private state: AppState;
   private points: ControlPoints;
   private widgets: Widgets;
+  private onSceneChanged: () => void;
   private raycaster = new THREE.Raycaster();
   private drag: Drag | null = null;
 
@@ -223,6 +224,7 @@ export class Interaction {
     state: AppState;
     points: ControlPoints;
     widgets: Widgets;
+    onSceneChanged?: () => void;
   }) {
     this.canvas = opts.canvas;
     this.camera = opts.camera;
@@ -232,6 +234,7 @@ export class Interaction {
     this.state = opts.state;
     this.points = opts.points;
     this.widgets = opts.widgets;
+    this.onSceneChanged = opts.onSceneChanged ?? (() => {});
 
     this.canvas.addEventListener('pointerdown', this.onPointerDown);
     this.canvas.addEventListener('pointermove', this.onPointerMove);
@@ -253,6 +256,7 @@ export class Interaction {
 
   applyPose() {
     this.rig.applyPose(this.pose.solveSkeleton());
+    this.onSceneChanged();
   }
 
   private ndc(e: { clientX: number; clientY: number }): THREE.Vector2 {
@@ -392,12 +396,14 @@ export class Interaction {
       this.cameraTarget.add(move);
       d.lastX = e.clientX;
       d.lastY = e.clientY;
+      this.onSceneChanged();
       return;
     }
     if (d.mode === 'orbit') {
       this.orbit((e.clientX - d.lastX) * ORBIT_SPEED, (e.clientY - d.lastY) * ORBIT_SPEED);
       d.lastX = e.clientX;
       d.lastY = e.clientY;
+      this.onSceneChanged();
       return;
     }
     if (d.mode === 'zoom') {
@@ -475,6 +481,7 @@ export class Interaction {
     const offset = new THREE.Vector3().subVectors(this.camera.position, this.cameraTarget);
     offset.setLength(THREE.MathUtils.clamp(offset.length() * factor, 0.08, 20));
     this.camera.position.copy(this.cameraTarget).add(offset);
+    this.onSceneChanged();
   }
 
   /**

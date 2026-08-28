@@ -87,6 +87,38 @@ body {
   margin-bottom: 8px;
 }
 
+.form-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+input,
+select {
+  min-width: 0;
+  width: 100%;
+  padding: 6px 7px;
+  color: #d7dbe2;
+  background: #1f232b;
+  border: 1px solid #414859;
+  border-radius: 5px;
+}
+
+.form-row button {
+  flex: 0 0 auto;
+}
+
+.status {
+  min-height: 16px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: #8fc79f;
+}
+
+.status.error {
+  color: #ff8d8d;
+}
+
 .btn-row {
   display: flex;
   gap: 8px;
