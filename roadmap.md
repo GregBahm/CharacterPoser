@@ -25,9 +25,10 @@ Settled up front so later items don't have to be bolted on:
 
 ## Interaction
 
-- [x] **Shift-drag cascades down the body.** Holding Shift while dragging a point, twisting the
-      ring, or moving the direction helper carries the node's children as if parented to it.
-      (Right mouse button currently does the same; may be freed up later.)
+- [x] **Right-drag cascades down the body.** Using the right mouse button while dragging a point,
+      twisting the ring, or moving the direction helper carries the node's children as if parented.
+- [x] **Shift constrains point drags to XZ.** Holding Shift before or during a point drag locks
+      movement to the world XZ plane in the main, Side, and Top views.
 - [x] **Swap the character model.** The MPFB character replaced X Bot, then three Renderpeople
       models (Carla, Claudia, Eric) replaced MPFB. A character keeps its model for life; the
       model is chosen when it is added to the scene.

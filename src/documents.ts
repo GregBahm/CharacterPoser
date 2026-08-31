@@ -5,6 +5,7 @@ import {
   CONTROL_JOINTS_BY_VIEW,
   ControlView,
   FACE_JOINTS,
+  isLegRootControlJoint,
   JointId,
   LEFT_HAND_JOINTS,
   PoseGraph,
@@ -58,7 +59,7 @@ export interface SceneCameraDocument {
 export interface SceneCharacterDocument {
   id: string;
   model: string;
-  controls: Record<JointId, ControlTransformDocument>;
+  controls: Partial<Record<JointId, ControlTransformDocument>>;
 }
 
 export interface SceneDocument {
@@ -82,6 +83,8 @@ export interface SceneDocument {
 }
 
 const JOINT_IDS = new Set<string>(CONTROL_JOINTS);
+const LEGACY_BODY_CONTROL_JOINTS = BODY_CONTROL_JOINTS.filter((id) => !isLegRootControlJoint(id));
+const LEGACY_CONTROL_JOINTS = CONTROL_JOINTS.filter((id) => !isLegRootControlJoint(id));
 const CONTROL_VIEWS = new Set<string>(['body', 'leftHand', 'rightHand', 'face']);
 const DETAIL_ANCHORS: Record<Exclude<ControlView, 'body'>, JointId> = {
   leftHand: 'LeftHand',
@@ -182,7 +185,7 @@ export function parsePoseDocument(value: unknown): PoseDocument {
     throw new Error(`Unsupported pose version "${String(record.version)}"; expected ${DOCUMENT_VERSION}`);
   }
   const scope = parseView(record.scope, 'pose.scope');
-  const requiredIds = scope === 'body' ? BODY_CONTROL_JOINTS : CONTROL_JOINTS_BY_VIEW[scope].slice(1);
+  const requiredIds = scope === 'body' ? LEGACY_BODY_CONTROL_JOINTS : CONTROL_JOINTS_BY_VIEW[scope].slice(1);
   const coordinateSpace = record.coordinateSpace;
   const expectedSpace = scope === 'body' ? 'world' : 'anchor';
   if (coordinateSpace !== expectedSpace) throw new Error(`pose.coordinateSpace must be "${expectedSpace}"`);
@@ -259,7 +262,7 @@ function parseSceneCharacter(value: unknown, path: string): SceneCharacterDocume
   return {
     id: requireString(record.id, `${path}.id`),
     model: requireString(record.model, `${path}.model`),
-    controls: parseControls(record.controls, CONTROL_JOINTS, `${path}.controls`) as Record<JointId, ControlTransformDocument>,
+    controls: parseControls(record.controls, LEGACY_CONTROL_JOINTS, `${path}.controls`),
   };
 }
 
@@ -319,6 +322,23 @@ function applyTransform(pose: PoseGraph, id: JointId, value: ControlTransformDoc
   const node = pose.get(id);
   node.pos.fromArray(value.position);
   node.quat.fromArray(value.rotation).normalize();
+}
+
+/** Reconstruct hip controls in documents saved before those controls existed. */
+function applyMissingLegRootControls(
+  pose: PoseGraph,
+  controls: Partial<Record<JointId, ControlTransformDocument>>,
+) {
+  const hips = pose.get('Hips');
+  for (const id of ['LeftUpLeg', 'RightUpLeg'] as const) {
+    if (controls[id]) continue;
+    const node = pose.get(id);
+    node.pos
+      .subVectors(pose.bindPositions.get(id)!, pose.bindPositions.get('Hips')!)
+      .applyQuaternion(hips.quat)
+      .add(hips.pos);
+    node.quat.copy(hips.quat);
+  }
 }
 
 function detailIdsForAnchor(anchor: JointId): JointId[] {
@@ -407,7 +427,11 @@ export function applyPoseDocument(pose: PoseGraph, document: PoseDocument) {
     RightHand: captureAnchorRelative(pose, 'RightHand', RIGHT_HAND_JOINTS),
     Head: captureAnchorRelative(pose, 'Head', FACE_JOINTS),
   };
-  for (const id of BODY_CONTROL_JOINTS) applyTransform(pose, id, document.controls[id]!);
+  for (const id of BODY_CONTROL_JOINTS) {
+    const value = document.controls[id];
+    if (value) applyTransform(pose, id, value);
+  }
+  applyMissingLegRootControls(pose, document.controls);
   applyAnchorRelative(pose, 'LeftHand', preservedDetails.LeftHand);
   applyAnchorRelative(pose, 'RightHand', preservedDetails.RightHand);
   applyAnchorRelative(pose, 'Head', preservedDetails.Head);
@@ -420,6 +444,13 @@ export function serializeAllControls(pose: PoseGraph): Record<JointId, ControlTr
   })) as Record<JointId, ControlTransformDocument>;
 }
 
-export function applySceneControls(pose: PoseGraph, controls: Record<JointId, ControlTransformDocument>) {
-  for (const id of CONTROL_JOINTS) applyTransform(pose, id, controls[id]);
+export function applySceneControls(
+  pose: PoseGraph,
+  controls: Partial<Record<JointId, ControlTransformDocument>>,
+) {
+  for (const id of CONTROL_JOINTS) {
+    const value = controls[id];
+    if (value) applyTransform(pose, id, value);
+  }
+  applyMissingLegRootControls(pose, controls);
 }

@@ -68,9 +68,11 @@ export class PopupViews {
   private flipped = loadFlips();
   private overlay = new THREE.Scene();
   private sphere: THREE.Mesh;
+  private planeIndicator: THREE.Mesh;
   private frames: Record<PopupView, HTMLElement>;
   private labels: Record<PopupView, HTMLElement>;
   private hovered = false;
+  private xzLocked = false;
   private projected = new THREE.Vector3();
   private offset = new THREE.Vector3();
 
@@ -86,7 +88,13 @@ export class PopupViews {
       new THREE.MeshBasicMaterial({ depthTest: false, transparent: true, opacity: 0.9 }),
     );
     this.sphere.renderOrder = 10;
-    this.overlay.add(this.sphere);
+    this.planeIndicator = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 0.04, 1),
+      new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false, transparent: true, opacity: 0.8 }),
+    );
+    this.planeIndicator.renderOrder = 10;
+    this.planeIndicator.visible = false;
+    this.overlay.add(this.sphere, this.planeIndicator);
 
     const labels: Partial<Record<PopupView, HTMLElement>> = {};
     const frame = (view: PopupView) => {
@@ -153,6 +161,10 @@ export class PopupViews {
     this.hovered = hovered;
   }
 
+  setXZLocked(locked: boolean) {
+    this.xzLocked = locked;
+  }
+
   /** Called every frame: (re)capture on selection change, then aim the cameras and place the frames. */
   update() {
     const character = this.scene.active;
@@ -192,9 +204,17 @@ export class PopupViews {
     // The point itself follows the pose; same size rules as the main view's spheres.
     const anchorJoint = joint === 'Head' || joint === 'LeftHand' || joint === 'RightHand';
     const detailSize = this.state.activeView === 'face' ? 0.006 : 0.005;
-    this.sphere.scale.setScalar(this.state.activeView === 'body' ? 0.024 : anchorJoint ? 0.009 : detailSize);
-    this.sphere.position.copy(character.pose.get(joint).pos);
-    (this.sphere.material as THREE.MeshBasicMaterial).color.setHex(pointColor(true, this.hovered));
+    const pointSize = this.state.activeView === 'body' ? 0.024 : anchorJoint ? 0.009 : detailSize;
+    const point = character.pose.get(joint).pos;
+    this.sphere.visible = !this.xzLocked;
+    this.sphere.scale.setScalar(pointSize);
+    this.sphere.position.copy(point);
+    this.planeIndicator.visible = this.xzLocked;
+    this.planeIndicator.position.copy(point);
+    this.planeIndicator.scale.setScalar(pointSize * 3);
+    const color = pointColor(true, this.hovered);
+    (this.sphere.material as THREE.MeshBasicMaterial).color.setHex(color);
+    (this.planeIndicator.material as THREE.MeshBasicMaterial).color.setHex(color);
   }
 
   /** Draw both views into their rectangles; call after the main view has been drawn. */

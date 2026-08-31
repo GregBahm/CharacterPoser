@@ -1,14 +1,20 @@
 import * as THREE from 'three';
 import { Character } from './character.ts';
-import { CONTROL_JOINTS, ControlView, isAimOnlyJoint, JointId } from './pose.ts';
+import {
+  CONTROL_JOINTS,
+  ControlView,
+  isAimOnlyJoint,
+  isPositionLockedJoint,
+  JointId,
+} from './pose.ts';
 import { PopupView, PopupViews } from './popup-views.ts';
 import { CharacterScene } from './scene.ts';
 import { AppState, COLORS } from './state.ts';
 import { applySceneControls, ControlTransformDocument, serializeAllControls } from './documents.ts';
 
-/** Shift (or the right mouse button) makes a manipulation carry the node's subtree. */
+/** The right mouse button makes a manipulation carry the node's subtree. */
 function cascades(e: PointerEvent): boolean {
-  return e.shiftKey || e.button === 2;
+  return e.button === 2;
 }
 
 /** Meters moved per mousewheel notch while depth-dragging a point. */
@@ -28,6 +34,28 @@ const REVEAL_MARGIN = 50;
 
 function detailScale(view: ControlView): number {
   return view === 'body' ? 1 : view === 'face' ? 0.18 : 0.13;
+}
+
+function setTwistRingGradient(geometry: THREE.BufferGeometry, startColor: number) {
+  const uv = geometry.getAttribute('uv');
+  let colorAttribute = geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+  if (!colorAttribute) {
+    colorAttribute = new THREE.BufferAttribute(new Float32Array(uv.count * 3), 3);
+    geometry.setAttribute('color', colorAttribute);
+  }
+  const start = new THREE.Color(startColor);
+  const end = new THREE.Color(COLORS.free);
+  const color = new THREE.Color();
+  for (let i = 0; i < uv.count; i++) {
+    color.lerpColors(start, end, uv.getX(i)).toArray(colorAttribute.array, i * 3);
+  }
+  colorAttribute.needsUpdate = true;
+}
+
+function twistRingGeometry(): THREE.TorusGeometry {
+  const geometry = new THREE.TorusGeometry(RING_RADIUS, RING_TUBE, 10, 48);
+  setTwistRingGradient(geometry, COLORS.ring);
+  return geometry;
 }
 
 /**
@@ -51,14 +79,15 @@ export class Widgets {
   private line: THREE.Line;
   private linePositions: Float32Array;
   private hovered: 'ring' | 'helper' | null = null;
+  private ringHighlighted = false;
 
   constructor(
     private scene: CharacterScene,
     private state: AppState,
   ) {
     this.ring = new THREE.Mesh(
-      new THREE.TorusGeometry(RING_RADIUS, RING_TUBE, 10, 48),
-      new THREE.MeshBasicMaterial({ color: COLORS.ring, depthTest: false, transparent: true, opacity: 0.85 }),
+      twistRingGeometry(),
+      new THREE.MeshBasicMaterial({ vertexColors: true, depthTest: false, transparent: true, opacity: 0.85 }),
     );
     this.ring.renderOrder = 11;
     this.stretchRing = new THREE.Mesh(
@@ -126,16 +155,19 @@ export class Widgets {
     this.hovered = target;
   }
 
-  update() {
+  update(hideAim = false) {
     const target = this.target();
     this.group.visible = target !== null;
     if (!target) return;
     const { character, joint } = target;
     const node = character.pose.get(joint);
     const scale = this.widgetScale();
-    (this.ring.material as THREE.MeshBasicMaterial).color.setHex(
-      this.hovered === 'ring' ? COLORS.ringHover : COLORS.ring,
-    );
+    const ringHighlighted = this.hovered === 'ring';
+    if (ringHighlighted !== this.ringHighlighted) {
+      this.ringHighlighted = ringHighlighted;
+      setTwistRingGradient(this.ring.geometry, ringHighlighted ? COLORS.ringHover : COLORS.ring);
+    }
+    (this.ring.material as THREE.MeshBasicMaterial).opacity = ringHighlighted ? 1 : 0.85;
     (this.helper.material as THREE.MeshBasicMaterial).color.setHex(
       this.hovered === 'helper' ? COLORS.helperHover : COLORS.helper,
     );
@@ -144,21 +176,25 @@ export class Widgets {
     const aimOnly = isAimOnlyJoint(joint);
     this.ring.visible = !aimOnly;
     this.ringPick.visible = !aimOnly;
-    // Torus axis is +Z, so the node's quat tips it perpendicular to the aim.
+    // The full control frame keeps the gradient seam aligned to accumulated twist.
+    const ringOrientation = character.pose.controlFrame(joint);
     this.ring.position.copy(node.pos);
-    this.ring.quaternion.copy(node.quat);
+    this.ring.quaternion.copy(ringOrientation);
     this.ring.scale.setScalar(scale);
     this.ringPick.position.copy(node.pos);
-    this.ringPick.quaternion.copy(node.quat);
+    this.ringPick.quaternion.copy(ringOrientation);
     this.ringPick.scale.setScalar(scale);
 
     this.stretchRing.visible = !aimOnly && character.pose.hasStretchSegment(joint);
     this.stretchRing.position.copy(node.pos);
-    this.stretchRing.quaternion.copy(node.quat);
+    this.stretchRing.quaternion.copy(ringOrientation);
     this.stretchRing.scale.setScalar(scale);
     this.setStretchRingRadius(RING_RADIUS * character.pose.segmentStretch(joint));
 
     const helperPos = this.helperWorldPos();
+    this.helper.visible = !hideAim;
+    this.helperPick.visible = !hideAim;
+    this.line.visible = !hideAim;
     this.helper.position.copy(helperPos);
     this.helper.scale.setScalar(scale);
     this.helperPick.position.copy(helperPos);
@@ -176,7 +212,16 @@ interface Pick {
 
 type Drag =
   /** `view` is the inset the drag started in, or null for the main view. */
-  | { mode: 'point' | 'subtree'; character: Character; joint: JointId; grabOffset: THREE.Vector3; view: PopupView | null }
+  | {
+      mode: 'point' | 'subtree';
+      character: Character;
+      joint: JointId;
+      grabOffset: THREE.Vector3;
+      view: PopupView | null;
+      xzLocked: boolean;
+      lastX: number;
+      lastY: number;
+    }
   | { mode: 'aim'; character: Character; joint: JointId; target: THREE.Vector3; withChildren: boolean }
   | { mode: 'twist'; character: Character; joint: JointId; axis: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3; lastAngle: number; withChildren: boolean }
   | { mode: 'twist-pixels'; character: Character; joint: JointId; lastX: number; withChildren: boolean }
@@ -208,10 +253,9 @@ function sceneSnapshotsEqual(a: SceneSnapshot, b: SceneSnapshot): boolean {
 
 /**
  * Pointer handling for the canvas. By default a manipulation affects the
- * local node only; holding Shift (or using the right mouse button) cascades
- * it down the body, carrying the whole subtree as if parented to the node —
- * for point drags and widget drags alike:
- *  - drag a point: move it in the view XY plane
+ * local node only; using the right mouse button cascades it down the body,
+ * carrying the whole subtree as if parented to the node:
+ *  - drag a point: move it in the view plane; Shift constrains it to world XZ
  *  - mousewheel while dragging: move in z-space instead
  *  - drag the selected node's twist ring / direction helper: rotate it
  *  - Alt + left-drag: orbit; middle-drag: pan; Alt + right-drag:
@@ -231,6 +275,8 @@ export class Interaction {
   private onSceneChanged: () => void;
   private raycaster = new THREE.Raycaster();
   private drag: Drag | null = null;
+  private hoveredPoint: Pick | null = null;
+  private shiftDown = false;
   private gestureStart: SceneSnapshot | null = null;
   private undoStack: SceneSnapshot[] = [];
   private redoStack: SceneSnapshot[] = [];
@@ -270,12 +316,21 @@ export class Interaction {
       if (e.button === 1) e.preventDefault();
     });
     window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
+    window.addEventListener('blur', () => {
+      this.shiftDown = false;
+      this.syncPlaneLock();
+    });
   }
 
   /** Called every frame. */
   update() {
     for (const character of this.scene.characters) character.points.update(this.state);
-    this.widgets.update();
+    const draggingPoint = this.drag?.mode === 'point' || this.drag?.mode === 'subtree';
+    this.widgets.update(draggingPoint || this.shiftDown);
+    this.popups.setXZLocked(
+      this.shiftDown && this.state.selected !== null && !isPositionLockedJoint(this.state.selected),
+    );
     this.popups.update();
   }
 
@@ -349,12 +404,22 @@ export class Interaction {
   }
 
   private onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Shift') {
+      this.shiftDown = true;
+      this.syncPlaneLock();
+    }
     if (this.drag || !event.ctrlKey || event.key.toLowerCase() !== 'z' || event.repeat) return;
     const target = event.target as HTMLElement | null;
     if (target?.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
     event.preventDefault();
     if (event.shiftKey) this.redo();
     else this.undo();
+  };
+
+  private onKeyUp = (event: KeyboardEvent) => {
+    if (event.key !== 'Shift') return;
+    this.shiftDown = false;
+    this.syncPlaneLock();
   };
 
   private ndc(e: { clientX: number; clientY: number }): THREE.Vector2 {
@@ -375,7 +440,7 @@ export class Interaction {
     else this.setRay(e);
   }
 
-  private cameraFor(view: PopupView | null): THREE.Camera {
+  private cameraFor(view: PopupView | null): THREE.PerspectiveCamera {
     return view ? this.popups.cameras[view] : this.camera;
   }
 
@@ -411,9 +476,19 @@ export class Interaction {
     const { character, joint } = target;
     this.beginPoseGesture();
     const center = character.pose.get(joint).pos;
-    const planeHit = this.hitViewPlane(center, this.cameraFor(view));
+    const planeHit = this.shiftDown ? null : this.hitViewPlane(center, this.cameraFor(view));
     const grabOffset = planeHit ? new THREE.Vector3().subVectors(center, planeHit) : new THREE.Vector3();
-    this.drag = { mode: cascades(e) ? 'subtree' : 'point', character, joint, grabOffset, view };
+    this.drag = {
+      mode: cascades(e) ? 'subtree' : 'point',
+      character,
+      joint,
+      grabOffset,
+      view,
+      xzLocked: this.shiftDown,
+      lastX: e.clientX,
+      lastY: e.clientY,
+    };
+    this.syncPlaneLock();
     this.canvas.setPointerCapture(e.pointerId);
   }
 
@@ -430,6 +505,7 @@ export class Interaction {
   }
 
   private pickWidget(): WidgetTarget | null {
+    if (this.shiftDown) return null;
     const target = this.widgets.target();
     if (!target) return null;
     if (this.raycaster.intersectObject(this.widgets.helperPick, false).length > 0) return 'helper';
@@ -440,11 +516,27 @@ export class Interaction {
   }
 
   private setHovered(point: Pick | null, widget: WidgetTarget | null) {
+    this.hoveredPoint = point;
     for (const character of this.scene.characters) {
       character.points.setHovered(point && point.character === character ? point.joint : null);
     }
     this.widgets.setHovered(widget);
+    this.syncPlaneLock();
     this.canvas.style.cursor = point || widget ? 'grab' : 'default';
+  }
+
+  private syncPlaneLock() {
+    const dragPoint = this.drag && (this.drag.mode === 'point' || this.drag.mode === 'subtree')
+      ? { character: this.drag.character, joint: this.drag.joint }
+      : null;
+    const candidate = dragPoint ?? this.hoveredPoint;
+    const target = this.shiftDown && candidate && !isPositionLockedJoint(candidate.joint) ? candidate : null;
+    for (const character of this.scene.characters) {
+      character.points.setPlaneLocked(target?.character === character ? target.joint : null);
+    }
+    this.popups.setXZLocked(
+      this.shiftDown && this.state.selected !== null && !isPositionLockedJoint(this.state.selected),
+    );
   }
 
   private updateHover(e: { clientX: number; clientY: number }) {
@@ -559,13 +651,23 @@ export class Interaction {
     const { character, joint } = pick;
     this.state.select(joint, character.id);
     this.setHovered(pick, null);
-    if (isAimOnlyJoint(joint)) return; // select only; the eye is moved with its aim helper
+    if (isPositionLockedJoint(joint)) return;
     this.beginPoseGesture();
 
     const center = character.pose.get(joint).pos;
-    const planeHit = this.hitViewPlane(center);
+    const planeHit = this.shiftDown ? null : this.hitViewPlane(center);
     const grabOffset = planeHit ? new THREE.Vector3().subVectors(center, planeHit) : new THREE.Vector3();
-    this.drag = { mode: withChildren ? 'subtree' : 'point', character, joint, grabOffset, view: null };
+    this.drag = {
+      mode: withChildren ? 'subtree' : 'point',
+      character,
+      joint,
+      grabOffset,
+      view: null,
+      xzLocked: this.shiftDown,
+      lastX: e.clientX,
+      lastY: e.clientY,
+    };
+    this.syncPlaneLock();
     this.canvas.setPointerCapture(e.pointerId);
   };
 
@@ -634,6 +736,24 @@ export class Interaction {
     if (d.mode === 'point' || d.mode === 'subtree') {
       // Point drags may live in an inset; everything else is main-view only.
       this.setRayFor(e, d.view);
+      if (d.xzLocked !== this.shiftDown) {
+        d.xzLocked = this.shiftDown;
+        d.lastX = e.clientX;
+        d.lastY = e.clientY;
+        if (!d.xzLocked) {
+          const center = pose.get(d.joint).pos;
+          const planeHit = this.hitViewPlane(center, this.cameraFor(d.view));
+          d.grabOffset.copy(planeHit ? center.clone().sub(planeHit) : new THREE.Vector3());
+        }
+        return;
+      }
+      if (d.xzLocked) {
+        const move = this.xzDragDelta(e, d);
+        if (move.lengthSq() === 0) return;
+        pose.translate(d.joint, move, d.mode === 'subtree');
+        this.applyCharacter(d.character);
+        return;
+      }
       const hit = this.hitViewPlane(pose.get(d.joint).pos, this.cameraFor(d.view));
       if (!hit) return;
       pose.moveTo(d.joint, hit.add(d.grabOffset), d.mode === 'subtree');
@@ -669,6 +789,7 @@ export class Interaction {
     if (!this.drag) return;
     const finished = this.drag;
     this.drag = null;
+    this.syncPlaneLock();
     if (
       finished.mode === 'point' ||
       finished.mode === 'subtree' ||
@@ -701,6 +822,11 @@ export class Interaction {
     const depthStep = this.camera
       .getWorldDirection(new THREE.Vector3())
       .multiplyScalar(notch * Z_STEP * detailScale(this.state.activeView));
+    if (this.shiftDown && depthStep.lengthSq() > 1e-10) {
+      const length = depthStep.length();
+      depthStep.y = 0;
+      if (depthStep.lengthSq() > 1e-10) depthStep.setLength(length);
+    }
     if (d && (d.mode === 'point' || d.mode === 'subtree')) {
       d.character.pose.translate(d.joint, depthStep, d.mode === 'subtree');
       this.applyCharacter(d.character);
@@ -751,5 +877,39 @@ export class Interaction {
     const dist = this.camera.position.distanceTo(this.cameraTarget);
     const viewHeight = 2 * dist * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2);
     return viewHeight / this.canvas.clientHeight;
+  }
+
+  private xzDragDelta(
+    e: { clientX: number; clientY: number },
+    drag: Extract<Drag, { mode: 'point' | 'subtree' }>,
+  ): THREE.Vector3 {
+    const dx = e.clientX - drag.lastX;
+    const dy = e.clientY - drag.lastY;
+    drag.lastX = e.clientX;
+    drag.lastY = e.clientY;
+    if (dx === 0 && dy === 0) return new THREE.Vector3();
+
+    const camera = this.cameraFor(drag.view);
+    const point = drag.character.pose.get(drag.joint).pos;
+    const viewportHeight = drag.view
+      ? this.popups.rects()?.[drag.view].size ?? this.canvas.clientHeight
+      : this.canvas.clientHeight;
+    const distance = camera.position.distanceTo(point);
+    const viewHeight = 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    const worldPerPixel = viewHeight / Math.max(1, viewportHeight);
+
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+    right.y = 0;
+    if (right.lengthSq() > 1e-10) right.normalize();
+
+    const vertical = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+    vertical.y = 0;
+    if (vertical.lengthSq() < 1e-6) {
+      camera.getWorldDirection(vertical);
+      vertical.y = 0;
+    }
+    if (vertical.lengthSq() > 1e-10) vertical.normalize();
+
+    return right.multiplyScalar(dx * worldPerPixel).addScaledVector(vertical, -dy * worldPerPixel);
   }
 }

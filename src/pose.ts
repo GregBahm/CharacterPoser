@@ -133,7 +133,11 @@ export const JOINT_PARENT: Record<JointId, JointId | null> = Object.fromEntries(
   JOINT_DEFS.map((d) => [d.id, d.parent]),
 ) as Record<JointId, JointId | null>;
 
-/** The 13 user-facing control points (OpenPose-style body). */
+/** Hip-socket controls rotate the upper leg but remain anchored to the pelvis. */
+export const LEG_ROOT_CONTROL_JOINTS: JointId[] = ['LeftUpLeg', 'RightUpLeg'];
+const LEG_ROOT_CONTROL_SET = new Set(LEG_ROOT_CONTROL_JOINTS);
+
+/** The 15 user-facing control points (OpenPose-style body plus hip sockets). */
 export const BODY_CONTROL_JOINTS: JointId[] = [
   'Hips',
   'Spine2',
@@ -144,8 +148,10 @@ export const BODY_CONTROL_JOINTS: JointId[] = [
   'RightArm',
   'RightForeArm',
   'RightHand',
+  'LeftUpLeg',
   'LeftLeg',
   'LeftFoot',
+  'RightUpLeg',
   'RightLeg',
   'RightFoot',
 ];
@@ -213,10 +219,18 @@ export function isAimOnlyJoint(id: JointId): boolean {
   return id in AIM_LINKED;
 }
 
+export function isLegRootControlJoint(id: JointId): boolean {
+  return LEG_ROOT_CONTROL_SET.has(id);
+}
+
+export function isPositionLockedJoint(id: JointId): boolean {
+  return isAimOnlyJoint(id) || isLegRootControlJoint(id);
+}
+
 /**
  * Parent of each control point in the *control* tree from the design doc.
  * This skips over the non-control skeleton joints (spine mids, clavicles,
- * hip sockets), e.g. a knee's control parent is the Hips.
+ * and neck).
  */
 export const CONTROL_PARENT: Partial<Record<JointId, JointId | null>> = {
   Hips: null,
@@ -228,9 +242,11 @@ export const CONTROL_PARENT: Partial<Record<JointId, JointId | null>> = {
   RightArm: 'Spine2',
   RightForeArm: 'RightArm',
   RightHand: 'RightForeArm',
-  LeftLeg: 'Hips',
+  LeftUpLeg: 'Hips',
+  LeftLeg: 'LeftUpLeg',
   LeftFoot: 'LeftLeg',
-  RightLeg: 'Hips',
+  RightUpLeg: 'Hips',
+  RightLeg: 'RightUpLeg',
   RightFoot: 'RightLeg',
   LeftThumb1: 'LeftHand',
   LeftThumb2: 'LeftThumb1',
@@ -277,8 +293,6 @@ export const CONTROL_PARENT: Partial<Record<JointId, JointId | null>> = {
  * bind offset from the base is rotated by the base's orientation.
  */
 const RIGID_ATTACH: { joint: JointId; base: JointId }[] = [
-  { joint: 'LeftUpLeg', base: 'Hips' },
-  { joint: 'RightUpLeg', base: 'Hips' },
   { joint: 'Neck', base: 'Spine2' },
   { joint: 'LeftShoulder', base: 'Spine2' },
   { joint: 'RightShoulder', base: 'Spine2' },
@@ -286,6 +300,10 @@ const RIGID_ATTACH: { joint: JointId; base: JointId }[] = [
 
 /** Every node's aim direction at bind: the character faces world +Z. */
 const BIND_FORWARD = new THREE.Vector3(0, 0, 1);
+const LEG_ROOT_AIM_CHILD: Partial<Record<JointId, JointId>> = {
+  LeftUpLeg: 'LeftLeg',
+  RightUpLeg: 'RightLeg',
+};
 
 export interface ControlNode {
   id: JointId;
@@ -362,24 +380,56 @@ export class PoseGraph {
     return this.nodes.get(id)!;
   }
 
-  /** The node's current aim direction (world +Z at bind, rotated by its quat). */
+  /** The node's current aim direction; hip controls follow their live upper-leg segment. */
   forward(id: JointId, target = new THREE.Vector3()): THREE.Vector3 {
+    const aimChild = LEG_ROOT_AIM_CHILD[id];
+    if (aimChild) {
+      target.subVectors(this.get(aimChild).pos, this.get(id).pos);
+      if (target.lengthSq() > 1e-10) return target.normalize();
+      target.subVectors(this.bindPositions.get(aimChild)!, this.bindPositions.get(id)!);
+      return target.normalize().applyQuaternion(this.get(id).quat);
+    }
     return target.copy(BIND_FORWARD).applyQuaternion(this.get(id).quat);
+  }
+
+  /** Full widget frame, preserving twist while keeping hip controls aligned to the live leg. */
+  controlFrame(id: JointId, target = new THREE.Quaternion()): THREE.Quaternion {
+    const node = this.get(id);
+    const aimChild = LEG_ROOT_AIM_CHILD[id];
+    if (!aimChild) return target.copy(node.quat);
+
+    const bindAim = new THREE.Vector3()
+      .subVectors(this.bindPositions.get(aimChild)!, this.bindPositions.get(id)!)
+      .normalize();
+    const bindFrame = new THREE.Quaternion().setFromUnitVectors(BIND_FORWARD, bindAim);
+    const expectedAim = bindAim.clone().applyQuaternion(node.quat);
+    const liveAim = new THREE.Vector3().subVectors(this.get(aimChild).pos, node.pos);
+    if (liveAim.lengthSq() < 1e-10) {
+      return target.copy(node.quat).multiply(bindFrame);
+    }
+    const aimCorrection = new THREE.Quaternion().setFromUnitVectors(expectedAim, liveAim.normalize());
+    return target.copy(aimCorrection).multiply(node.quat).multiply(bindFrame);
   }
 
   /** Translate a point, optionally carrying its whole control subtree along. */
   translate(id: JointId, delta: THREE.Vector3, withChildren: boolean) {
-    if (isAimOnlyJoint(id)) return; // eyes stay in their sockets
+    if (isPositionLockedJoint(id)) return;
     const node = this.get(id);
     node.pos.add(delta);
     const anchoredDetails = !isDetailJoint(id)
       ? node.children.filter((child) => isDetailJoint(child.id))
       : [];
-    const stack = withChildren ? [...node.children] : anchoredDetails;
+    const anchoredLegRoots = node.children.filter((child) => isLegRootControlJoint(child.id));
+    const stack = withChildren
+      ? node.children.map((child) => ({ node: child, recurse: true }))
+      : [
+          ...anchoredDetails.map((child) => ({ node: child, recurse: true })),
+          ...anchoredLegRoots.map((child) => ({ node: child, recurse: false })),
+        ];
     while (stack.length) {
-      const n = stack.pop()!;
+      const { node: n, recurse } = stack.pop()!;
       n.pos.add(delta);
-      stack.push(...n.children);
+      if (recurse) stack.push(...n.children.map((child) => ({ node: child, recurse: true })));
     }
   }
 
@@ -401,16 +451,30 @@ export class PoseGraph {
     if (linked) this.get(linked).quat.premultiply(delta);
     const pivot = node.pos;
     const tmp = new THREE.Vector3();
+    if (!withChildren && isLegRootControlJoint(id)) {
+      for (const child of node.children) {
+        tmp.subVectors(child.pos, pivot).applyQuaternion(delta);
+        child.pos.copy(pivot).add(tmp);
+        child.quat.premultiply(delta);
+      }
+      return;
+    }
     const anchoredDetails = !isDetailJoint(id)
       ? node.children.filter((child) => isDetailJoint(child.id))
       : [];
-    const stack = withChildren ? [...node.children] : anchoredDetails;
+    const anchoredLegRoots = node.children.filter((child) => isLegRootControlJoint(child.id));
+    const stack = withChildren
+      ? node.children.map((child) => ({ node: child, recurse: true }))
+      : [
+          ...anchoredDetails.map((child) => ({ node: child, recurse: true })),
+          ...anchoredLegRoots.map((child) => ({ node: child, recurse: false })),
+        ];
     while (stack.length) {
-      const n = stack.pop()!;
+      const { node: n, recurse } = stack.pop()!;
       tmp.subVectors(n.pos, pivot).applyQuaternion(delta);
       n.pos.copy(pivot).add(tmp);
       n.quat.premultiply(delta);
-      stack.push(...n.children);
+      if (recurse) stack.push(...n.children.map((child) => ({ node: child, recurse: true })));
     }
   }
 
@@ -439,8 +503,8 @@ export class PoseGraph {
   }
 
   /**
-   * Derive world positions and rotation deltas for all 20 skeleton joints:
-   * control joints directly, sockets/neck rigidly attached to their control,
+   * Derive world positions and rotation deltas for all skeleton joints:
+   * control joints directly, neck/shoulders rigidly attached to their control,
    * and the spine mids interpolated along the Hips->Chest line.
    */
   solveSkeleton(): SolvedSkeleton {

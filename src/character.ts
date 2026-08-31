@@ -11,7 +11,7 @@ export interface CharacterLoadOptions {
   /** Id from a saved scene; a fresh one is made otherwise. */
   id?: string;
   /** Saved control transforms to start from instead of the base pose. */
-  controls?: Record<JointId, ControlTransformDocument>;
+  controls?: Partial<Record<JointId, ControlTransformDocument>>;
   /** Where to stand the base pose (world offset of the whole character). */
   offset?: THREE.Vector3;
 }

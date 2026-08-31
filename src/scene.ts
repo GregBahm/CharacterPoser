@@ -43,7 +43,7 @@ export class CharacterScene {
 
   async add(
     model: CharacterModel,
-    saved?: { id: string; controls: Record<JointId, ControlTransformDocument> },
+    saved?: { id: string; controls: Partial<Record<JointId, ControlTransformDocument>> },
   ): Promise<Character> {
     const character = await Character.load(model, saved ?? { offset: this.spawnOffset() });
     this.characters.push(character);

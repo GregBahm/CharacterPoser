@@ -52,21 +52,26 @@ any number of characters, each keeping its model for life:
 
 ## Interaction
 
-Everywhere, a modifier picks the scope: **plain manipulation affects only the node itself;
-holding Shift (or using the right mouse button) cascades it down the body, carrying all of the
-node's children rigidly as if they were parented to it.**
+Everywhere, **plain manipulation affects only the node itself; using the right mouse button
+cascades it down the body, carrying all of the node's children rigidly as if they were parented
+to it.**
 
-- **Drag** a control point: move it in the view XY plane (Shift = with subtree).
+- **Drag** a control point: move it in the current view plane. Hold Shift before or during the
+  drag to constrain it to the world XZ plane; the point becomes a small horizontal plate and the
+  aim helper hides while the constraint is active. The twist and stretch rings remain visible so
+  segment-length changes can still be read. This works in the main, Side, and Top views.
 - **Mousewheel while dragging** (either button): move the point (or subtree) in z-depth instead.
 - **Select** a point (click it, or use the sidebar body map) to show the two helper widgets:
   - **Twist ring** (teal): drag along it to roll the node around its aim axis
-    (Shift = subtree rotates with it).
+    (right mouse button = subtree rotates with it).
   - **Direction helper** (orange dot): drag it to aim the node at it
-    (Shift = subtree rotates with it).
+    (right mouse button = subtree rotates with it).
     Mousewheel while dragging the helper moves the aim target in depth.
   - **Stretch ring** (lavender, passive): coplanar with the twist ring, radius = twist-ring
     radius x the stretch of the segment ending at this node. At natural length it hides behind
     the twist ring; it grows when the segment is longer than natural, shrinks when shorter.
+    With no point selected, each control point also shifts from blue toward lavender according
+    to its segment's absolute stretch or squash, reaching full lavender at 30%.
   - All widgets live in the node's local frame: the helper always sits along the node's
     current aim (world +Z at rest), and the rings lie perpendicular to it.
 - Unity-style camera controls: **Alt + left-drag** orbits, **middle-drag** pans,
@@ -83,6 +88,10 @@ node's children rigidly as if they were parented to it.**
   They are captured when the point is selected and stay put until the selection changes.
 - **Eyes** are aim-only: clicking one selects it, only the direction helper is offered (no drag,
   no twist), and both eyes turn together.
+- **Hip sockets** are rotation-only controls at the top of each leg. Their direction helper aims
+  down the upper leg and their twist ring wraps around it. Left-dragging either widget carries the
+  knee control; right-dragging carries the whole leg. The socket itself cannot
+  be translated away from the pelvis.
 - **Main view.** The Camera section at the bottom of the Controls tab: **Set as Main** bookmarks
   the current camera; it then reads **Set to Main** and enables once you move away, snapping the
   camera back on click. **Clear** must be held for half a second (a bar fills) to forget the
