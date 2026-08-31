@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Character } from './character.ts';
-import { CONTROL_JOINTS, ControlView, JointId } from './pose.ts';
+import { CONTROL_JOINTS, ControlView, isAimOnlyJoint, JointId } from './pose.ts';
 import { CharacterScene } from './scene.ts';
 import { AppState, COLORS } from './state.ts';
 import { applySceneControls, ControlTransformDocument, serializeAllControls } from './documents.ts';
@@ -139,6 +139,10 @@ export class Widgets {
       this.hovered === 'helper' ? COLORS.helperHover : COLORS.helper,
     );
 
+    // Aim-only joints (eyes) get just the direction helper.
+    const aimOnly = isAimOnlyJoint(joint);
+    this.ring.visible = !aimOnly;
+    this.ringPick.visible = !aimOnly;
     // Torus axis is +Z, so the node's quat tips it perpendicular to the aim.
     this.ring.position.copy(node.pos);
     this.ring.quaternion.copy(node.quat);
@@ -147,7 +151,7 @@ export class Widgets {
     this.ringPick.quaternion.copy(node.quat);
     this.ringPick.scale.setScalar(scale);
 
-    this.stretchRing.visible = character.pose.hasStretchSegment(joint);
+    this.stretchRing.visible = !aimOnly && character.pose.hasStretchSegment(joint);
     this.stretchRing.position.copy(node.pos);
     this.stretchRing.quaternion.copy(node.quat);
     this.stretchRing.scale.setScalar(scale);
@@ -380,8 +384,11 @@ export class Interaction {
   }
 
   private pickWidget(): WidgetTarget | null {
-    if (!this.widgets.target()) return null;
+    const target = this.widgets.target();
+    if (!target) return null;
     if (this.raycaster.intersectObject(this.widgets.helperPick, false).length > 0) return 'helper';
+    // Raycasts ignore visibility; the eyes' hidden ring must not grab the pointer.
+    if (isAimOnlyJoint(target.joint)) return null;
     if (this.raycaster.intersectObject(this.widgets.ringPick, false).length > 0) return 'ring';
     return null;
   }
@@ -488,8 +495,9 @@ export class Interaction {
     }
     const { character, joint } = pick;
     this.state.select(joint, character.id);
-    this.beginPoseGesture();
     this.setHovered(pick, null);
+    if (isAimOnlyJoint(joint)) return; // select only; the eye is moved with its aim helper
+    this.beginPoseGesture();
 
     const center = character.pose.get(joint).pos;
     const planeHit = this.hitViewPlane(center);

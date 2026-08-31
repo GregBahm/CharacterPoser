@@ -204,6 +204,16 @@ export function isFingerJoint(id: JointId): boolean {
 }
 
 /**
+ * Eyes only aim: they can't be dragged out of the head or twisted, and they
+ * aim together — a rotation applied to one is applied to the other.
+ */
+const AIM_LINKED: Partial<Record<JointId, JointId>> = { LeftEye: 'RightEye', RightEye: 'LeftEye' };
+
+export function isAimOnlyJoint(id: JointId): boolean {
+  return id in AIM_LINKED;
+}
+
+/**
  * Parent of each control point in the *control* tree from the design doc.
  * This skips over the non-control skeleton joints (spine mids, clavicles,
  * hip sockets), e.g. a knee's control parent is the Hips.
@@ -359,6 +369,7 @@ export class PoseGraph {
 
   /** Translate a point, optionally carrying its whole control subtree along. */
   translate(id: JointId, delta: THREE.Vector3, withChildren: boolean) {
+    if (isAimOnlyJoint(id)) return; // eyes stay in their sockets
     const node = this.get(id);
     node.pos.add(delta);
     const anchoredDetails = !isDetailJoint(id)
@@ -385,6 +396,9 @@ export class PoseGraph {
   rotate(id: JointId, delta: THREE.Quaternion, withChildren: boolean) {
     const node = this.get(id);
     node.quat.premultiply(delta);
+    // The other eye turns the same way (it has no children of its own).
+    const linked = AIM_LINKED[id];
+    if (linked) this.get(linked).quat.premultiply(delta);
     const pivot = node.pos;
     const tmp = new THREE.Vector3();
     const anchoredDetails = !isDetailJoint(id)

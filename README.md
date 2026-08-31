@@ -74,6 +74,8 @@ node's children rigidly as if they were parented to it.**
 - Hovering brightens the exact control point, twist ring, or direction helper that will be
   manipulated. **Ctrl+Z** undoes pose edits and **Ctrl+Shift+Z** redoes them (up to 50 steps);
   camera navigation is not included in pose history.
+- **Eyes** are aim-only: clicking one selects it, only the direction helper is offered (no drag,
+  no twist), and both eyes turn together.
 - **Escape** deselects; **Reset Pose** returns to the bind pose.
 - The sidebar has two tabs. **Controls** is the active character (the one you last picked a
   point on): the Body/Face/Hand control maps, the pose library, Reset Pose, and Delete. It stays
