@@ -60,9 +60,9 @@ export class CharactersPanel {
   }
 
   private render() {
+    // Shown alongside the active character's controls (the panel itself hides with no character).
     const active = this.scene.active;
-    const showDelete = active !== null && this.state.selected !== null;
-    this.deleteButton.hidden = !showDelete;
+    this.deleteButton.hidden = active === null;
     if (active) this.deleteButton.textContent = `Delete ${active.model.label}`;
   }
 }

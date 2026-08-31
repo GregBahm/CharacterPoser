@@ -22,6 +22,8 @@ const ZOOM_DRAG_SPEED = 0.01;
 const ORBIT_PITCH_LIMIT = THREE.MathUtils.degToRad(89);
 const RING_RADIUS = 0.09;
 const RING_TUBE = 0.007;
+/** Pixels around a character's on-screen control points that count as hovering it. */
+const REVEAL_MARGIN = 50;
 
 function detailScale(view: ControlView): number {
   return view === 'body' ? 1 : view === 'face' ? 0.18 : 0.13;
@@ -248,7 +250,9 @@ export class Interaction {
     this.canvas.addEventListener('pointerup', this.onPointerUp);
     this.canvas.addEventListener('pointercancel', this.onPointerUp);
     this.canvas.addEventListener('pointerleave', () => {
-      if (!this.drag) this.setHovered(null, null);
+      if (this.drag) return;
+      this.setHovered(null, null);
+      for (const character of this.scene.characters) character.points.setRevealed(false);
     });
     this.canvas.addEventListener('wheel', this.onWheel, { passive: false });
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -396,6 +400,37 @@ export class Interaction {
     this.setHovered(widget ? null : this.pickSphere(), widget);
   }
 
+  /**
+   * With always-show off, a character's points are drawn while the cursor is
+   * within their on-screen bounds (padded), or while one of them is dragged.
+   */
+  private updateReveal(e: { clientX: number; clientY: number }) {
+    if (this.state.alwaysShowPoints) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const dragged = this.drag && 'character' in this.drag ? this.drag.character : null;
+    const v = new THREE.Vector3();
+    for (const character of this.scene.characters) {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const mesh of character.points.meshes) {
+        v.copy(mesh.position).project(this.camera);
+        if (v.z > 1) continue; // behind the camera
+        const x = rect.left + ((v.x + 1) / 2) * rect.width;
+        const y = rect.top + ((1 - v.y) / 2) * rect.height;
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+      const inside = minX !== Infinity
+        && e.clientX >= minX - REVEAL_MARGIN && e.clientX <= maxX + REVEAL_MARGIN
+        && e.clientY >= minY - REVEAL_MARGIN && e.clientY <= maxY + REVEAL_MARGIN;
+      character.points.setRevealed(inside || character === dragged);
+    }
+  }
+
   private onPointerDown = (e: PointerEvent) => {
     if (this.drag) return;
 
@@ -488,6 +523,7 @@ export class Interaction {
   }
 
   private onPointerMove = (e: PointerEvent) => {
+    this.updateReveal(e);
     if (!this.drag) {
       this.updateHover(e);
       return;
@@ -567,6 +603,7 @@ export class Interaction {
       this.commitPoseGesture();
     }
     if (this.canvas.hasPointerCapture(e.pointerId)) this.canvas.releasePointerCapture(e.pointerId);
+    this.updateReveal(e);
     this.updateHover(e);
   };
 

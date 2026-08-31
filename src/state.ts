@@ -17,6 +17,16 @@ export function pointColor(selected: boolean, hovered = false): number {
   return hovered ? COLORS.freeHover : COLORS.free;
 }
 
+const ALWAYS_SHOW_KEY = 'characterPoser.alwaysShowPoints';
+
+function loadAlwaysShowPoints(): boolean {
+  try {
+    return localStorage.getItem(ALWAYS_SHOW_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
 function defaultSelections(): Record<ControlView, JointId | null> {
   return {
     body: null,
@@ -37,6 +47,11 @@ export class AppState {
   activeCharacter: string | null = null;
   selected: JointId | null = null;
   activeView: ControlView = 'body';
+  /**
+   * Draw every control point all the time; when off, a character's points
+   * only show while the mouse is over it (per-browser preference).
+   */
+  alwaysShowPoints = loadAlwaysShowPoints();
 
   private listeners: (() => void)[] = [];
   private selections = defaultSelections();
@@ -47,6 +62,17 @@ export class AppState {
 
   emit() {
     for (const fn of this.listeners) fn();
+  }
+
+  setAlwaysShowPoints(on: boolean) {
+    if (this.alwaysShowPoints === on) return;
+    this.alwaysShowPoints = on;
+    try {
+      localStorage.setItem(ALWAYS_SHOW_KEY, on ? '1' : '0');
+    } catch {
+      /* private mode etc. */
+    }
+    this.emit();
   }
 
   /** Select a joint, on the active character unless `characterId` names another. */

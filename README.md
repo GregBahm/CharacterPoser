@@ -75,9 +75,12 @@ node's children rigidly as if they were parented to it.**
   manipulated. **Ctrl+Z** undoes pose edits and **Ctrl+Shift+Z** redoes them (up to 50 steps);
   camera navigation is not included in pose history.
 - **Escape** deselects; **Reset Pose** returns to the bind pose.
-- The sidebar has two tabs. **Controls** is the selected character: the Body/Face/Hand control
-  maps, the pose library, Reset Pose, and Delete. It is empty until a control point is selected
-  and opens by itself when one is. **Scene** holds sessions, adding characters, and rendering.
+- The sidebar has two tabs. **Controls** is the active character (the one you last picked a
+  point on): the Body/Face/Hand control maps, the pose library, Reset Pose, and Delete. It stays
+  on that character when you deselect, opens by itself when you pick a point, and is empty only
+  when the scene has no characters. **Always Show** under the map draws the 3D control points all
+  the time; turned off, a character's points appear only while the mouse is over it. While a point
+  is selected, only that point is drawn (the others stay clickable, and show under the mouse). **Scene** holds sessions, adding characters, rendering, and lighting.
 - Use the **Body**, **Face**, **L Hand**, and **R Hand** tabs to switch control maps; switching
   never moves the camera. Click the **magnifying glass** beside a tab to also frame that area in
   the viewport (the detail views frame in close). You can also double-click the head or either

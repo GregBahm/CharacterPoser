@@ -174,6 +174,7 @@ export class UI {
   private jointName = document.getElementById('joint-name') as HTMLElement;
   private mapTitle = document.getElementById('control-view-title') as HTMLElement;
   private selectionPanel = document.getElementById('selection-panel') as HTMLElement;
+  private alwaysShowButton = document.getElementById('btn-always-show') as HTMLButtonElement;
   private renderedView: ControlView | null = null;
   private tab: SidebarTab = 'scene';
   private hadSelection = false;
@@ -195,6 +196,9 @@ export class UI {
     for (const [tab, ids] of Object.entries(SIDEBAR_TABS) as [SidebarTab, { button: string }][]) {
       document.getElementById(ids.button)!.addEventListener('click', () => this.showTab(tab));
     }
+    this.alwaysShowButton.addEventListener('click', () => {
+      this.state.setAlwaysShowPoints(!this.state.alwaysShowPoints);
+    });
 
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.state.select(null);
@@ -284,7 +288,8 @@ export class UI {
     if (hasSelection && !this.hadSelection) this.showTab('controls');
     else this.showTab(this.tab);
     this.hadSelection = hasSelection;
-    this.selectionPanel.hidden = !hasSelection;
+    // The panel follows the active (last picked) character, selection or not.
+    this.selectionPanel.hidden = character === null;
     for (const [id, circle] of this.circles) {
       const isSelected = selected === id;
       circle.setAttribute('fill', `#${pointColor(isSelected).toString(16).padStart(6, '0')}`);
@@ -293,8 +298,9 @@ export class UI {
     for (const [view, buttonId] of Object.entries(VIEW_BUTTONS) as [ControlView, string][]) {
       document.getElementById(buttonId)!.classList.toggle('active', view === this.state.activeView);
     }
-    this.jointName.textContent = hasSelection
-      ? `${character.model.label} · ${JOINT_LABELS[selected] ?? selected}`
+    this.alwaysShowButton.classList.toggle('active', this.state.alwaysShowPoints);
+    this.jointName.textContent = character
+      ? (selected ? `${character.model.label} · ${JOINT_LABELS[selected] ?? selected}` : character.model.label)
       : '';
   }
 }

@@ -211,6 +211,10 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
+.map-options {
+  margin-top: 8px;
+}
+
 .sidebar-tabs {
   display: flex;
   gap: 6px;
