@@ -8,6 +8,7 @@ import {
   SceneDocument,
   serializeAllControls,
 } from './documents.ts';
+import { CameraPose } from './camera-bookmark.ts';
 import { cloneLighting, defaultLighting, LightingSettings } from './lighting.ts';
 import { findCharacterModel } from './models.ts';
 import { PersistenceClient, createDocumentId, StoredDocumentSummary } from './persistence.ts';
@@ -26,6 +27,8 @@ interface PersistenceContext {
   loadCharacters(characters: SceneCharacterDocument[]): Promise<void>;
   lighting(): LightingSettings;
   setLighting(lighting: LightingSettings): void;
+  mainCamera(): CameraPose | null;
+  setMainCamera(pose: CameraPose | null): void;
   applyPose(): void;
   applyPoseEdit(edit: () => void): void;
   clearPoseHistory(): void;
@@ -204,6 +207,7 @@ export class PersistenceController {
     if (!this.current) throw new Error('No active session');
     const resolution = this.context.resolution();
     const activeCharacterId = this.context.scene.active?.id;
+    const mainCamera = this.context.mainCamera();
     return {
       kind: SCENE_KIND,
       version: DOCUMENT_VERSION,
@@ -216,6 +220,7 @@ export class PersistenceController {
       })),
       ...(activeCharacterId ? { activeCharacterId } : {}),
       lighting: cloneLighting(this.context.lighting()),
+      ...(mainCamera ? { mainCamera } : {}),
       cameras: [{
         id: 'free',
         position: this.context.camera.position.toArray(),
@@ -281,6 +286,7 @@ export class PersistenceController {
     await this.context.loadCharacters(document.characters);
     if (document.activeCharacterId) this.context.state.setActiveCharacter(document.activeCharacterId);
     this.context.setLighting(document.lighting ?? defaultLighting());
+    this.context.setMainCamera(document.mainCamera ?? null);
     const camera = document.cameras[0];
     this.context.camera.position.fromArray(camera.position);
     this.context.cameraTarget.fromArray(camera.target);

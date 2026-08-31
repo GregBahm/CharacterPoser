@@ -83,6 +83,10 @@ node's children rigidly as if they were parented to it.**
   They are captured when the point is selected and stay put until the selection changes.
 - **Eyes** are aim-only: clicking one selects it, only the direction helper is offered (no drag,
   no twist), and both eyes turn together.
+- **Main view.** The Camera section at the bottom of the Controls tab: **Set as Main** bookmarks
+  the current camera; it then reads **Set to Main** and enables once you move away, snapping the
+  camera back on click. **Clear** must be held for half a second (a bar fills) to forget the
+  bookmark. The main view is saved with the session.
 - **Escape** deselects; **Reset Pose** returns to the bind pose.
 - The sidebar has two tabs. **Controls** is the active character (the one you last picked a
   point on): the Body/Face/Hand control maps, the pose library, Reset Pose, and Delete. It stays

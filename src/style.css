@@ -215,6 +215,52 @@ select {
   margin-top: 8px;
 }
 
+/* The Controls tab fills the sidebar so the Camera section can sit at its bottom. */
+#panel-controls {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+}
+
+#camera-section {
+  margin-top: auto;
+}
+
+/* Twice a normal button: the one you reach for while navigating. */
+#btn-main-camera {
+  min-height: 62px;
+}
+
+#camera-section .btn-row + .btn-row {
+  margin-top: 6px;
+}
+
+/* Hold-to-confirm button: a bar fills behind the label while it is held. */
+.hold-button {
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+
+.hold-button .hold-progress {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: rgba(255, 141, 141, 0.35);
+  pointer-events: none;
+}
+
+.hold-button.armed .hold-progress {
+  background: rgba(255, 141, 141, 0.6);
+}
+
+.hold-button .hold-label {
+  position: relative;
+}
+
 .sidebar-tabs {
   display: flex;
   gap: 6px;
@@ -284,6 +330,31 @@ button.active {
   flex: 1;
   position: relative;
   min-width: 0;
+}
+
+/* Shown while the camera is off the main view: a 1px line of 10px dashes, inset half the
+   inset-view margin (6px). SVG because CSS borders cannot set the dash length. */
+#main-view-frame {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+#main-view-frame svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#main-view-frame rect {
+  x: 6.5px;
+  y: 6.5px;
+  width: calc(100% - 13px);
+  height: calc(100% - 13px);
+  fill: none;
+  stroke: #b9c0cc;
+  stroke-width: 1;
+  stroke-dasharray: 10 6;
 }
 
 #render-status {

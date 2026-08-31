@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CameraBookmark, CameraPanel } from './camera-bookmark.ts';
 import { CharactersPanel } from './character-ui.ts';
 import { SceneCharacterDocument } from './documents.ts';
 import { Interaction, Widgets } from './interaction.ts';
@@ -161,10 +162,15 @@ async function init() {
     lightingPanel.refresh();
   };
 
+  // The bookmarked main view; edits autosave with the scene.
+  const bookmark = new CameraBookmark(camera, cameraTarget, () => persistence?.notifySceneChanged());
+  const cameraPanel = new CameraPanel(bookmark);
+
   const resetScene = async () => {
     characters.clear();
     await characters.add(DEFAULT_CHARACTER_MODEL);
     setLighting(defaultLighting());
+    bookmark.clear();
     state.setView('body');
     camera.fov = 40;
     camera.updateProjectionMatrix();
@@ -197,6 +203,8 @@ async function init() {
     loadCharacters,
     lighting: () => lighting.settings,
     setLighting,
+    mainCamera: () => bookmark.main,
+    setMainCamera: (pose) => bookmark.load(pose),
     applyPose: () => interaction.applyPose(),
     applyPoseEdit: (edit) => interaction.performPoseEdit(edit),
     clearPoseHistory: () => interaction.clearPoseHistory(),
@@ -277,6 +285,8 @@ async function init() {
     sceneRenderer,
     lighting,
     popups,
+    bookmark,
+    cameraPanel,
     get character() {
       return characters.active;
     },
@@ -312,6 +322,7 @@ async function init() {
   renderer.setAnimationLoop(() => {
     interaction.update();
     camera.lookAt(cameraTarget);
+    cameraPanel.update();
     lighting.fitShadows(characters.bounds());
     sceneRenderer.render();
   });

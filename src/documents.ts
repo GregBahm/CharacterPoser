@@ -10,6 +10,7 @@ import {
   PoseGraph,
   RIGHT_HAND_JOINTS,
 } from './pose.ts';
+import { CameraPose } from './camera-bookmark.ts';
 import {
   AmbientLightSettings,
   DirectionalLightSettings,
@@ -71,6 +72,8 @@ export interface SceneDocument {
   activeCharacterId?: string;
   /** Scene lights; absent in scenes saved before lighting was editable (defaults apply). */
   lighting?: LightingSettings;
+  /** The bookmarked main view, if one was set. */
+  mainCamera?: CameraPose;
   cameras: [SceneCameraDocument];
   activeCameraId: string;
   activeView: ControlView;
@@ -240,6 +243,17 @@ function parseLighting(value: unknown, path: string): LightingSettings {
   };
 }
 
+function parseCameraPose(value: unknown, path: string): CameraPose {
+  const record = requireRecord(value, path);
+  const fov = requireNumber(record.fov, `${path}.fov`);
+  if (fov <= 0 || fov >= 180) throw new Error(`${path}.fov must be between 0 and 180`);
+  return {
+    position: requireTuple(record.position, 3, `${path}.position`),
+    target: requireTuple(record.target, 3, `${path}.target`),
+    fov,
+  };
+}
+
 function parseSceneCharacter(value: unknown, path: string): SceneCharacterDocument {
   const record = requireRecord(value, path);
   return {
@@ -265,6 +279,7 @@ export function parseSceneDocument(value: unknown): SceneDocument {
     if (!ids.has(activeCharacterId)) throw new Error('scene.activeCharacterId does not reference a character');
   }
   const lighting = record.lighting === undefined ? undefined : parseLighting(record.lighting, 'scene.lighting');
+  const mainCamera = record.mainCamera === undefined ? undefined : parseCameraPose(record.mainCamera, 'scene.mainCamera');
   if (!Array.isArray(record.cameras) || record.cameras.length !== 1) {
     throw new Error('scene.cameras must contain exactly one camera in this version');
   }
@@ -279,6 +294,7 @@ export function parseSceneDocument(value: unknown): SceneDocument {
     characters,
     ...(activeCharacterId !== undefined ? { activeCharacterId } : {}),
     ...(lighting !== undefined ? { lighting } : {}),
+    ...(mainCamera !== undefined ? { mainCamera } : {}),
     cameras: [camera],
     activeCameraId,
     activeView: parseView(record.activeView, 'scene.activeView'),

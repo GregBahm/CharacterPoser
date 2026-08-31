@@ -56,9 +56,16 @@ Settled up front so later items don't have to be bolted on:
 - [x] **Multiple characters** in one scene. Add/Delete in the Characters section; the body
       view picks across all characters, the detail views follow the active one.
 - [ ] **Environment asset** added to the scene.
-- [ ] **Saved cameras.** Save camera positions (with resolution/FOV) and switch between the
-      free camera and saved cameras.
-- [ ] **Multiple views.** Several active, editable camera views at once (quad-view style).
+- [x] **Main view** (was "saved cameras"). One bookmarked camera per scene rather than a list:
+      **Set as Main** remembers the view, the button becomes **Set to Main** and snaps back once the
+      camera has wandered (a dashed frame around the viewport shows it has), and a hold-to-confirm
+      **Clear** forgets it. Saved with the session. Output resolution/FOV per shot is deferred to
+      the ComfyUI export item, where it is actually needed.
+- [x] **Side/Top insets** (was "multiple views"). Instead of a quad layout, selecting a control
+      point pops two inset views spanning the viewport's height: the scene from the side and from
+      above (or the far side / below via right-click), at the main camera's distance scaled to the
+      inset size, showing only the selected point. Dragging it there moves it in that view's
+      plane, so a point can be placed in all three dimensions without leaving the main view.
 
 ## ComfyUI
 
