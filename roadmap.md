@@ -50,6 +50,9 @@ Settled up front so later items don't have to be bolted on:
       embedded textures), and progressive GPU path tracing via `three-gpu-pathtracer` that
       converges while the scene is still and drops to a raster frame mid-drag. A
       scene-construction aid, not ComfyUI input.
+- [x] **Lighting.** Ambient color/intensity, add/remove directional lights (color, intensity,
+      direction, softness — soft shadows when path traced; the first light shadows in raster),
+      and a screen-space ambient occlusion toggle. Saved with the session.
 - [x] **Multiple characters** in one scene. Add/Delete in the Characters section; the body
       view picks across all characters, the detail views follow the active one.
 - [ ] **Environment asset** added to the scene.

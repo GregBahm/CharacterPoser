@@ -104,9 +104,14 @@ node's children rigidly as if they were parented to it.**
 - `src/control-points.ts`, `src/interaction.ts` — per-character control spheres, the widgets,
   and all pointer/wheel handling; pose history snapshots every character.
 - `src/render-modes.ts` — the three render modes. Untextured (clay) and Textured are Lambert
-  shading without/with the models' embedded diffuse textures; Path Traced runs
-  `three-gpu-pathtracer` progressively with the textures, pausing on pose/camera changes and
-  rebuilding once they settle. Control points and widgets draw in an overlay scene on top of
+  shading without/with the models' embedded diffuse textures, optionally with N8AO screen-space
+  ambient occlusion (neural denoise, accumulating over frames while the view is still); Path Traced runs `three-gpu-pathtracer` progressively with the textures,
+  pausing on pose/camera/light changes and rebuilding or relighting once they settle.
+- `src/lighting.ts`, `src/lighting-ui.ts` — the scene's lighting (ambient color/intensity plus
+  up to 8 directional lights with color, intensity, azimuth, elevation, softness) and its panel.
+  The first light casts the raster shadows. Softness only shows when path traced: each soft light
+  is stood in for by a distant circular area light of the same irradiance, since the path
+  tracer's directional lights have no angular size. Lighting is saved with the session. Control points and widgets draw in an overlay scene on top of
   every mode. The chosen mode is a per-browser preference (localStorage), not session state.
 - `src/ui.ts`, `src/character-ui.ts`, `src/state.ts`, `src/main.ts` — body-map sidebar, the
   Characters add/delete panel, selection state (active character + joint), scene bootstrap.

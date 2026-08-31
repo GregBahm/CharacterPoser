@@ -8,6 +8,7 @@ import {
   SceneDocument,
   serializeAllControls,
 } from './documents.ts';
+import { cloneLighting, defaultLighting, LightingSettings } from './lighting.ts';
 import { findCharacterModel } from './models.ts';
 import { PersistenceClient, createDocumentId, StoredDocumentSummary } from './persistence.ts';
 import { PersistenceUI } from './persistence-ui.ts';
@@ -23,6 +24,8 @@ interface PersistenceContext {
   resolution(): { width: number; height: number };
   /** Replace the scene's characters with saved ones (loads their models). */
   loadCharacters(characters: SceneCharacterDocument[]): Promise<void>;
+  lighting(): LightingSettings;
+  setLighting(lighting: LightingSettings): void;
   applyPose(): void;
   applyPoseEdit(edit: () => void): void;
   clearPoseHistory(): void;
@@ -212,6 +215,7 @@ export class PersistenceController {
         controls: serializeAllControls(character.pose),
       })),
       ...(activeCharacterId ? { activeCharacterId } : {}),
+      lighting: cloneLighting(this.context.lighting()),
       cameras: [{
         id: 'free',
         position: this.context.camera.position.toArray(),
@@ -276,6 +280,7 @@ export class PersistenceController {
   private async applySceneState(document: SceneDocument) {
     await this.context.loadCharacters(document.characters);
     if (document.activeCharacterId) this.context.state.setActiveCharacter(document.activeCharacterId);
+    this.context.setLighting(document.lighting ?? defaultLighting());
     const camera = document.cameras[0];
     this.context.camera.position.fromArray(camera.position);
     this.context.cameraTarget.fromArray(camera.target);

@@ -86,6 +86,7 @@ export class CharacterRig {
         material.dispose();
       }
       mesh.castShadow = true;
+      mesh.receiveShadow = true; // self-shadowing and shadows from other characters
       mesh.frustumCulled = false; // skinned mesh moves far from its bind bbox
     });
     for (const map of maps) await limitTextureSize(map);

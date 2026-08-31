@@ -79,6 +79,16 @@ export class CharacterScene {
     return this.characters.flatMap((character) => character.points.meshes);
   }
 
+  /** World bounds of every character's control points; null when the scene is empty. */
+  bounds(target = new THREE.Box3()): THREE.Box3 | null {
+    if (this.characters.length === 0) return null;
+    target.makeEmpty();
+    for (const character of this.characters) {
+      for (const node of character.pose.nodes.values()) target.expandByPoint(node.pos);
+    }
+    return target;
+  }
+
   private spawnOffset(): THREE.Vector3 {
     if (this.characters.length === 0) return new THREE.Vector3();
     const furthest = Math.max(...this.characters.map((character) => character.pose.get('Hips').pos.x));

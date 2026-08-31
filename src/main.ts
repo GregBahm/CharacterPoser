@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { CharactersPanel } from './character-ui.ts';
 import { SceneCharacterDocument } from './documents.ts';
 import { Interaction, Widgets } from './interaction.ts';
+import { defaultLighting, SceneLighting } from './lighting.ts';
+import { LightingPanel } from './lighting-ui.ts';
 import { DEFAULT_CHARACTER_MODEL, findCharacterModel } from './models.ts';
 import { CONTROL_JOINTS_BY_VIEW, ControlView } from './pose.ts';
 import { AppState } from './state.ts';
@@ -27,18 +29,9 @@ const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 100);
 camera.position.set(0, 0.95, 4.2);
 camera.lookAt(cameraTarget);
 
-// Lighting + ground
-const hemi = new THREE.HemisphereLight(0xcfd8e6, 0x3a3f4a, 1.1);
-scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xffffff, 2.2);
-sun.position.set(3, 6, 4);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = -3;
-sun.shadow.camera.right = 3;
-sun.shadow.camera.top = 3;
-sun.shadow.camera.bottom = -3;
-scene.add(sun);
+// Lighting (editable in the Scene tab) + ground
+const lighting = new SceneLighting();
+scene.add(lighting.group);
 
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(40, 40),
@@ -67,12 +60,13 @@ async function init() {
 
   const state = new AppState();
   const sceneRenderer = new SceneRenderer(renderer, scene, camera, {
+    lighting,
     shaded: [ground],
     rasterOnly: [grid],
-    rasterLights: [hemi],
     status: document.getElementById('render-status'),
   });
   bindRenderModeButtons(sceneRenderer);
+  window.addEventListener('resize', () => sceneRenderer.setSize(viewportArea.clientWidth, viewportArea.clientHeight));
 
   // Control points and widgets draw on top of every mode and are never path traced.
   const characters = new CharacterScene(state, {
@@ -150,9 +144,22 @@ async function init() {
     }
   };
 
+  const lightingPanel = new LightingPanel(lighting, (change) => {
+    if (change === 'ambient') sceneRenderer.markEnvironmentChanged();
+    sceneRenderer.markLightsChanged();
+    persistence?.notifySceneChanged();
+  });
+  const setLighting = (settings: typeof lighting.settings) => {
+    lighting.apply(settings);
+    sceneRenderer.markEnvironmentChanged();
+    sceneRenderer.markLightsChanged();
+    lightingPanel.refresh();
+  };
+
   const resetScene = async () => {
     characters.clear();
     await characters.add(DEFAULT_CHARACTER_MODEL);
+    setLighting(defaultLighting());
     state.setView('body');
     camera.fov = 40;
     camera.updateProjectionMatrix();
@@ -183,6 +190,8 @@ async function init() {
       height: Math.max(1, Math.round(viewportArea.clientHeight)),
     }),
     loadCharacters,
+    lighting: () => lighting.settings,
+    setLighting,
     applyPose: () => interaction.applyPose(),
     applyPoseEdit: (edit) => interaction.performPoseEdit(edit),
     clearPoseHistory: () => interaction.clearPoseHistory(),
@@ -261,6 +270,7 @@ async function init() {
     camera,
     interaction,
     sceneRenderer,
+    lighting,
     get character() {
       return characters.active;
     },
@@ -296,6 +306,7 @@ async function init() {
   renderer.setAnimationLoop(() => {
     interaction.update();
     camera.lookAt(cameraTarget);
+    lighting.fitShadows(characters.bounds());
     sceneRenderer.render();
   });
 }

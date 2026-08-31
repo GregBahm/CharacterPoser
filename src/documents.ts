@@ -10,6 +10,13 @@ import {
   PoseGraph,
   RIGHT_HAND_JOINTS,
 } from './pose.ts';
+import {
+  AmbientLightSettings,
+  DirectionalLightSettings,
+  LIGHT_RANGES,
+  LightingSettings,
+  MAX_LIGHTS,
+} from './lighting.ts';
 
 export const DOCUMENT_VERSION = 1;
 export const SCENE_KIND = 'character-poser-scene';
@@ -62,6 +69,8 @@ export interface SceneDocument {
   characters: SceneCharacterDocument[];
   /** The character whose detail controls were showing; one of characters[].id. */
   activeCharacterId?: string;
+  /** Scene lights; absent in scenes saved before lighting was editable (defaults apply). */
+  lighting?: LightingSettings;
   cameras: [SceneCameraDocument];
   activeCameraId: string;
   activeView: ControlView;
@@ -190,6 +199,47 @@ export function parsePoseDocument(value: unknown): PoseDocument {
   };
 }
 
+function requireColor(value: unknown, path: string): string {
+  if (typeof value !== 'string' || !/^#[0-9a-f]{6}$/i.test(value)) throw new Error(`${path} must be a #rrggbb color`);
+  return value.toLowerCase();
+}
+
+function requireInRange(value: unknown, range: { min: number; max: number }, path: string): number {
+  const number = requireNumber(value, path);
+  if (number < range.min || number > range.max) throw new Error(`${path} must be between ${range.min} and ${range.max}`);
+  return number;
+}
+
+function parseAmbient(value: unknown, path: string): AmbientLightSettings {
+  const record = requireRecord(value, path);
+  return {
+    color: requireColor(record.color, `${path}.color`),
+    intensity: requireInRange(record.intensity, LIGHT_RANGES.ambientIntensity, `${path}.intensity`),
+  };
+}
+
+function parseLight(value: unknown, path: string): DirectionalLightSettings {
+  const record = requireRecord(value, path);
+  return {
+    color: requireColor(record.color, `${path}.color`),
+    intensity: requireInRange(record.intensity, LIGHT_RANGES.intensity, `${path}.intensity`),
+    azimuth: requireInRange(record.azimuth, LIGHT_RANGES.azimuth, `${path}.azimuth`),
+    elevation: requireInRange(record.elevation, LIGHT_RANGES.elevation, `${path}.elevation`),
+    softness: requireInRange(record.softness, LIGHT_RANGES.softness, `${path}.softness`),
+  };
+}
+
+function parseLighting(value: unknown, path: string): LightingSettings {
+  const record = requireRecord(value, path);
+  if (!Array.isArray(record.lights) || record.lights.length > MAX_LIGHTS) {
+    throw new Error(`${path}.lights must be an array of at most ${MAX_LIGHTS} lights`);
+  }
+  return {
+    ambient: parseAmbient(record.ambient, `${path}.ambient`),
+    lights: record.lights.map((light, index) => parseLight(light, `${path}.lights[${index}]`)),
+  };
+}
+
 function parseSceneCharacter(value: unknown, path: string): SceneCharacterDocument {
   const record = requireRecord(value, path);
   return {
@@ -214,6 +264,7 @@ export function parseSceneDocument(value: unknown): SceneDocument {
     activeCharacterId = requireString(record.activeCharacterId, 'scene.activeCharacterId');
     if (!ids.has(activeCharacterId)) throw new Error('scene.activeCharacterId does not reference a character');
   }
+  const lighting = record.lighting === undefined ? undefined : parseLighting(record.lighting, 'scene.lighting');
   if (!Array.isArray(record.cameras) || record.cameras.length !== 1) {
     throw new Error('scene.cameras must contain exactly one camera in this version');
   }
@@ -227,6 +278,7 @@ export function parseSceneDocument(value: unknown): SceneDocument {
     name: requireString(record.name, 'scene.name'),
     characters,
     ...(activeCharacterId !== undefined ? { activeCharacterId } : {}),
+    ...(lighting !== undefined ? { lighting } : {}),
     cameras: [camera],
     activeCameraId,
     activeView: parseView(record.activeView, 'scene.activeView'),

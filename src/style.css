@@ -152,6 +152,65 @@ select {
   flex: 1 1 40%;
 }
 
+.light-block {
+  margin: 8px 0;
+  padding: 7px 8px 5px;
+  background: #1f232b;
+  border: 1px solid #333845;
+  border-radius: 6px;
+}
+
+.light-block header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: #b9c0cc;
+}
+
+.light-block header span {
+  flex: 1;
+}
+
+.light-block input[type='color'] {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 22px;
+  padding: 1px 2px;
+}
+
+.remove-light {
+  flex: 0 0 auto;
+  padding: 0 7px;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.slider-row {
+  display: grid;
+  grid-template-columns: 56px 1fr 42px;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+  font-size: 11.5px;
+  color: #9aa2b1;
+}
+
+.slider-row input[type='range'] {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  accent-color: #5f84ad;
+}
+
+.slider-row output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .sidebar-tabs {
   display: flex;
   gap: 6px;

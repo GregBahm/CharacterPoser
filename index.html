@@ -90,6 +90,17 @@
                 <button id="btn-render-pathtraced" title="Progressive GPU path tracing with textures; converges while the scene is still">Path Traced</button>
               </div>
             </section>
+            <section>
+              <h2>Lighting</h2>
+              <div class="btn-row">
+                <button id="btn-ssao" title="Screen-space ambient occlusion (Untextured and Textured modes)">Ambient Occlusion</button>
+              </div>
+              <div id="ambient-light" class="light-block"></div>
+              <div id="light-list"></div>
+              <div class="btn-row">
+                <button id="btn-add-light" title="Add a directional light">Add Light</button>
+              </div>
+            </section>
           </div>
 
           <p id="persistence-status" class="status" role="status"></p>
