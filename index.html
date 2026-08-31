@@ -12,77 +12,92 @@
         <h1>Character Poser</h1>
         <div id="loading">Loading character…</div>
         <div id="controls" hidden>
-          <section>
-            <h2>Session: <span id="current-session">Starting...</span></h2>
-            <div class="form-row">
-              <select id="session-list" aria-label="Saved sessions"></select>
-              <button id="btn-load-session">Load</button>
+          <div class="sidebar-tabs">
+            <button id="tab-controls">Controls</button>
+            <button id="tab-scene" class="active">Scene</button>
+          </div>
+
+          <div id="panel-controls" hidden>
+            <div id="selection-panel" hidden>
+              <section>
+                <h2 id="joint-name"></h2>
+                <div class="view-tabs">
+                  <div class="view-tab">
+                    <button id="btn-view-body" class="active">Body</button>
+                    <button id="btn-frame-body" class="frame-btn" title="Frame the body in the viewport" aria-label="Frame the body"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.3" /><line x1="10" y1="10" x2="13.6" y2="13.6" /></svg></button>
+                  </div>
+                  <div class="view-tab">
+                    <button id="btn-view-face">Face</button>
+                    <button id="btn-frame-face" class="frame-btn" title="Frame the face in the viewport" aria-label="Frame the face"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.3" /><line x1="10" y1="10" x2="13.6" y2="13.6" /></svg></button>
+                  </div>
+                  <div class="view-tab">
+                    <button id="btn-view-left-hand">L Hand</button>
+                    <button id="btn-frame-left-hand" class="frame-btn" title="Frame the left hand in the viewport" aria-label="Frame the left hand"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.3" /><line x1="10" y1="10" x2="13.6" y2="13.6" /></svg></button>
+                  </div>
+                  <div class="view-tab">
+                    <button id="btn-view-right-hand">R Hand</button>
+                    <button id="btn-frame-right-hand" class="frame-btn" title="Frame the right hand in the viewport" aria-label="Frame the right hand"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.3" /><line x1="10" y1="10" x2="13.6" y2="13.6" /></svg></button>
+                  </div>
+                </div>
+              </section>
+              <section>
+                <h2 id="control-view-title">Body Controls</h2>
+                <div id="bodymap"></div>
+              </section>
+              <section>
+                <h2>Pose Library: <span id="pose-scope">Full Body</span></h2>
+                <input id="pose-name" type="text" maxlength="80" placeholder="Pose name" />
+                <div class="form-row">
+                  <select id="pose-list" aria-label="Saved poses"></select>
+                  <button id="btn-load-pose">Load</button>
+                  <button id="btn-save-pose">Save</button>
+                </div>
+              </section>
+              <section>
+                <div class="btn-row">
+                  <button id="btn-reset">Reset Pose</button>
+                  <button id="btn-delete-character" title="Remove this character from the scene">Delete</button>
+                </div>
+              </section>
             </div>
-            <div class="form-row">
-              <input id="session-name" type="text" maxlength="80" placeholder="New session name" />
-              <button id="btn-new-session">New</button>
-            </div>
-          </section>
-          <section>
-            <div class="view-tabs">
-              <div class="view-tab">
-                <button id="btn-view-body" class="active">Body</button>
-                <button id="btn-frame-body" class="frame-btn" title="Frame the body in the viewport" aria-label="Frame the body"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.3" /><line x1="10" y1="10" x2="13.6" y2="13.6" /></svg></button>
+          </div>
+
+          <div id="panel-scene">
+            <section>
+              <h2>Session: <span id="current-session">Starting...</span></h2>
+              <div class="form-row">
+                <select id="session-list" aria-label="Saved sessions"></select>
+                <button id="btn-load-session">Load</button>
               </div>
-              <div class="view-tab">
-                <button id="btn-view-face">Face</button>
-                <button id="btn-frame-face" class="frame-btn" title="Frame the face in the viewport" aria-label="Frame the face"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.3" /><line x1="10" y1="10" x2="13.6" y2="13.6" /></svg></button>
+              <div class="form-row">
+                <input id="session-name" type="text" maxlength="80" placeholder="New session name" />
+                <button id="btn-new-session">New</button>
               </div>
-              <div class="view-tab">
-                <button id="btn-view-left-hand">L Hand</button>
-                <button id="btn-frame-left-hand" class="frame-btn" title="Frame the left hand in the viewport" aria-label="Frame the left hand"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.3" /><line x1="10" y1="10" x2="13.6" y2="13.6" /></svg></button>
+            </section>
+            <section>
+              <h2>Characters</h2>
+              <div class="form-row">
+                <select id="model-list" aria-label="Character model to add"></select>
+                <button id="btn-add-character" title="Add this character to the scene in its base pose">Add</button>
               </div>
-              <div class="view-tab">
-                <button id="btn-view-right-hand">R Hand</button>
-                <button id="btn-frame-right-hand" class="frame-btn" title="Frame the right hand in the viewport" aria-label="Frame the right hand"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.3" /><line x1="10" y1="10" x2="13.6" y2="13.6" /></svg></button>
+              <p id="character-status" class="status" role="status"></p>
+            </section>
+            <section>
+              <h2>Rendering</h2>
+              <div class="btn-row render-modes">
+                <button id="btn-render-untextured" title="Lambert shading, clay-colored characters">Untextured</button>
+                <button id="btn-render-textured" title="Lambert shading with the characters' textures">Textured</button>
+                <button id="btn-render-pathtraced" title="Progressive GPU path tracing with textures; converges while the scene is still">Path Traced</button>
               </div>
-            </div>
-          </section>
-          <section>
-            <h2 id="control-view-title">Body Controls</h2>
-            <div id="bodymap"></div>
-          </section>
-          <section>
-            <h2>Pose Library: <span id="pose-scope">Full Body</span></h2>
-            <input id="pose-name" type="text" maxlength="80" placeholder="Pose name" />
-            <div class="form-row">
-              <select id="pose-list" aria-label="Saved poses"></select>
-              <button id="btn-load-pose">Load</button>
-              <button id="btn-save-pose">Save</button>
-            </div>
-            <p id="persistence-status" class="status" role="status"></p>
-          </section>
-          <section>
-            <h2>Selected: <span id="joint-name">none</span></h2>
-            <p class="hint">
-              <b>Drag</b> a point to move it. <b>Shift-drag</b> (or right-drag) to move it with its children.
-              <b>Mousewheel while dragging</b> moves the point in depth.
-            </p>
-            <p class="hint">
-              With a point selected: drag the <b>ring</b> to twist around its axis, drag the
-              <b>orange helper</b> to aim it. Hold <b>Shift</b> (or use the right mouse button) to
-              carry its children along.
-            </p>
-            <p class="hint">
-              <b>Alt + left-drag</b> orbits, <b>middle-drag</b> pans,
-              <b>Alt + right-drag left/right</b> zooms, and <b>mousewheel</b> also zooms.
-            </p>
-            <p class="hint"><b>Ctrl+Z</b> undoes a pose edit; <b>Ctrl+Shift+Z</b> redoes it.</p>
-          </section>
-          <section>
-            <div class="btn-row">
-              <button id="btn-reset">Reset Pose</button>
-            </div>
-          </section>
+            </section>
+          </div>
+
+          <p id="persistence-status" class="status" role="status"></p>
         </div>
       </aside>
       <main id="viewport-area">
         <canvas id="scene-canvas"></canvas>
+        <div id="render-status" hidden></div>
       </main>
     </div>
     <script type="module" src="/src/main.ts"></script>

@@ -32,6 +32,24 @@ launching to keep them elsewhere for backup or transfer to another computer.
   relative to their hand/head anchor, so they can be applied after those anchors move.
 - Invalid or unsupported files are reported in the sidebar instead of being overwritten.
 
+## Characters
+
+Three Renderpeople models ship in `public/`: **Carla**, **Claudia**, and **Eric**. A scene holds
+any number of characters, each keeping its model for life:
+
+- **Add** (Characters section) puts the chosen model into the scene in its base pose, standing
+  beside the others, and makes it the active character.
+- **Delete** appears while one of a character's control points is selected and removes that
+  character.
+- In the **Body** view every character's body points are shown and pickable; picking one makes
+  its character active. The **Face** and **Hand** views show only the active character's
+  controls, and the pose library saves/loads the active character.
+- The characters, their poses, and which one is active are saved with the session. Adding or
+  removing a character clears pose history.
+- The FBX files in `public/` are the `SourceArt/` originals with their embedded 8K diffuse textures
+  shrunk to 2K by `tools/shrink-textures.ps1` (which drives `tools/fbx-texture.mjs`, a binary-FBX
+  texture swapper); re-run it after replacing a source file.
+
 ## Interaction
 
 Everywhere, a modifier picks the scope: **plain manipulation affects only the node itself;
@@ -57,6 +75,9 @@ node's children rigidly as if they were parented to it.**
   manipulated. **Ctrl+Z** undoes pose edits and **Ctrl+Shift+Z** redoes them (up to 50 steps);
   camera navigation is not included in pose history.
 - **Escape** deselects; **Reset Pose** returns to the bind pose.
+- The sidebar has two tabs. **Controls** is the selected character: the Body/Face/Hand control
+  maps, the pose library, Reset Pose, and Delete. It is empty until a control point is selected
+  and opens by itself when one is. **Scene** holds sessions, adding characters, and rendering.
 - Use the **Body**, **Face**, **L Hand**, and **R Hand** tabs to switch control maps; switching
   never moves the camera. Click the **magnifying glass** beside a tab to also frame that area in
   the viewport (the detail views frame in close). You can also double-click the head or either
@@ -70,18 +91,30 @@ node's children rigidly as if they were parented to it.**
   on the node and optionally carry the subtree. `solveSkeleton()` derives the complete body and
   detail skeleton: sockets/neck ride rigidly on their control, and spine mids interpolate (and
   slerp twist) along Hips→Chest.
-- `src/rig.ts` — FBX loading, MPFB/Mixamo bone mapping, and fitting bones to a solved skeleton.
+- `src/models.ts`, `src/character.ts`, `src/scene.ts` — the bundled model list, one posable
+  character (rig + pose graph + control points), and the `CharacterScene` that adds/removes them
+  and tracks the active one.
+- `src/rig.ts` — FBX loading (keeping the embedded diffuse texture), Renderpeople bone mapping
+  (auto-oriented from the file's Z-up or Y-up axes), and fitting bones to a solved skeleton.
   Stateless per call: each bone's orientation = aim-correction × rotation-delta × bind, and each
   segment bone is scaled along its child axis by solvedLength / bindLength (plain axial stretch,
   no volume preservation), with downstream joints restored to exact world transforms so the
   stretch doesn't propagate.
   Leaf bones (head/hands/feet) follow their node's rotation delta exactly.
-- `src/interaction.ts` — control spheres, the widgets, and all pointer/wheel handling.
-- `src/ui.ts`, `src/state.ts`, `src/main.ts` — body-map sidebar, selection state, scene bootstrap.
+- `src/control-points.ts`, `src/interaction.ts` — per-character control spheres, the widgets,
+  and all pointer/wheel handling; pose history snapshots every character.
+- `src/render-modes.ts` — the three render modes. Untextured (clay) and Textured are Lambert
+  shading without/with the models' embedded diffuse textures; Path Traced runs
+  `three-gpu-pathtracer` progressively with the textures, pausing on pose/camera changes and
+  rebuilding once they settle. Control points and widgets draw in an overlay scene on top of
+  every mode. The chosen mode is a per-browser preference (localStorage), not session state.
+- `src/ui.ts`, `src/character-ui.ts`, `src/state.ts`, `src/main.ts` — body-map sidebar, the
+  Characters add/delete panel, selection state (active character + joint), scene bootstrap.
 - `src/documents.ts` — versioned scene/pose formats, strict validation, and pose conversion.
 - `src/persistence-controller.ts` — pose-library operations and serialized session autosave.
 - `server.mjs` — localhost-only Vite host and constrained atomic JSON file API.
 
 Debug query params: `?testdrag`, `?testsubtree`, `?testaim`, `?testtwist` apply scripted
 manipulations; `?debug` prints joint positions; `?select=<JointId>` preselects a node.
-`window.poser` exposes `{ pose, rig, state, camera, interaction }` for scripted testing.
+`window.poser` exposes `{ scene, state, camera, interaction, sceneRenderer }` plus `character`,
+`pose`, and `rig` getters for the active character, for scripted testing.

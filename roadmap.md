@@ -20,16 +20,17 @@ Settled up front so later items don't have to be bolted on:
 - **ComfyUI integration lives server-side.** Pushing poses, running pose estimation on photos,
   and the ComfyUI connection settings all go through the backend (ComfyUI/Python), not the
   browser.
-- **Face rig.** The default MPFB character provides the finger and facial bones used by the
-  detailed hand/face controls.
+- **Face rig.** The bundled Renderpeople characters share one skeleton whose finger and facial
+  bones (jaw, eyes, brows, mouth corners) drive the detailed hand/face controls.
 
 ## Interaction
 
 - [x] **Shift-drag cascades down the body.** Holding Shift while dragging a point, twisting the
       ring, or moving the direction helper carries the node's children as if parented to it.
       (Right mouse button currently does the same; may be freed up later.)
-- [x] **Swap the character model.** The MPFB character replaces X Bot as the default and its
-      native skeleton is mapped into the posing tool.
+- [x] **Swap the character model.** The MPFB character replaced X Bot, then three Renderpeople
+      models (Carla, Claudia, Eric) replaced MPFB. A character keeps its model for life; the
+      model is chosen when it is added to the scene.
 - [x] **Hands and face.** Zoom in on the hands and face and pose them with the same
       control-point model (finger bones; facial bones/blendshapes on the new model).
 - [x] **Manipulator hover feedback.** Brighten the exact point, twist ring, or direction helper
@@ -45,8 +46,12 @@ Settled up front so later items don't have to be bolted on:
 
 ## Scene
 
-- [ ] **Rendering modes** (lambert, basic, and path traced)
-- [ ] **Multiple characters** in one scene.
+- [x] **Rendering modes.** Untextured (Lambert clay), Textured (Lambert with the models'
+      embedded textures), and progressive GPU path tracing via `three-gpu-pathtracer` that
+      converges while the scene is still and drops to a raster frame mid-drag. A
+      scene-construction aid, not ComfyUI input.
+- [x] **Multiple characters** in one scene. Add/Delete in the Characters section; the body
+      view picks across all characters, the detail views follow the active one.
 - [ ] **Environment asset** added to the scene.
 - [ ] **Saved cameras.** Save camera positions (with resolution/FOV) and switch between the
       free camera and saved cameras.

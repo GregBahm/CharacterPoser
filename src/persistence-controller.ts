@@ -1,29 +1,33 @@
 import * as THREE from 'three';
 import {
   applyPoseDocument,
-  applySceneControls,
   createPoseDocument,
   DOCUMENT_VERSION,
   SCENE_KIND,
+  SceneCharacterDocument,
   SceneDocument,
   serializeAllControls,
 } from './documents.ts';
+import { findCharacterModel } from './models.ts';
 import { PersistenceClient, createDocumentId, StoredDocumentSummary } from './persistence.ts';
 import { PersistenceUI } from './persistence-ui.ts';
 import { ControlView, PoseGraph } from './pose.ts';
+import { CharacterScene } from './scene.ts';
 import { AppState } from './state.ts';
 
 interface PersistenceContext {
-  pose: PoseGraph;
+  scene: CharacterScene;
   state: AppState;
   camera: THREE.PerspectiveCamera;
   cameraTarget: THREE.Vector3;
-  model: string;
   resolution(): { width: number; height: number };
+  /** Replace the scene's characters with saved ones (loads their models). */
+  loadCharacters(characters: SceneCharacterDocument[]): Promise<void>;
   applyPose(): void;
   applyPoseEdit(edit: () => void): void;
   clearPoseHistory(): void;
-  resetScene(): void;
+  /** Start over: the default character in its base pose, camera reset. */
+  resetScene(): Promise<void>;
 }
 
 interface CurrentSession {
@@ -67,7 +71,7 @@ export class PersistenceController {
       }
     }
     if (!this.current) {
-      await this.createSession('Default Session', false);
+      await this.createSession('Default Session', true);
     }
     if (sessions.some((session) => session.invalid) || skipped.length > 0) {
       const detail = skipped.length > 0 ? ` ${skipped.join(' | ')}` : '';
@@ -113,20 +117,29 @@ export class PersistenceController {
     this.notifySceneChanged();
   }
 
+  /** The pose library works on the active character. */
+  private activePose(): PoseGraph {
+    const character = this.context.scene.active;
+    if (!character) throw new Error('Select a character first');
+    return character.pose;
+  }
+
   private async savePose(name: string) {
+    const pose = this.activePose();
     const id = createDocumentId(name);
-    const document = createPoseDocument(id, name, this.context.state.activeView, this.context.pose);
+    const document = createPoseDocument(id, name, this.context.state.activeView, pose);
     await this.client.savePose(document);
     await this.refreshPoses();
     this.ui.setStatus(`Saved ${name}.`);
   }
 
   private async loadPose(id: string) {
+    const pose = this.activePose();
     const scope = this.context.state.activeView;
     const document = await this.client.loadPose(scope, id);
     this.suppressAutosave = true;
     try {
-      this.context.applyPoseEdit(() => applyPoseDocument(this.context.pose, document));
+      this.context.applyPoseEdit(() => applyPoseDocument(pose, document));
     } finally {
       this.suppressAutosave = false;
     }
@@ -140,14 +153,14 @@ export class PersistenceController {
     const previousScene = previousSession ? this.captureScene() : null;
     this.suppressAutosave = true;
     try {
-      if (reset) this.context.resetScene();
+      if (reset) await this.context.resetScene();
       const now = new Date().toISOString();
       this.current = { id: createDocumentId(name), name, createdAt: now };
       await this.client.saveSession(this.captureScene(now));
       this.context.clearPoseHistory();
     } catch (cause) {
       this.current = previousSession;
-      if (previousScene) this.applySceneState(previousScene);
+      if (previousScene) await this.applySceneState(previousScene);
       throw cause;
     } finally {
       this.suppressAutosave = false;
@@ -161,13 +174,15 @@ export class PersistenceController {
   private async loadSession(id: string, existingList?: StoredDocumentSummary[]) {
     await this.flushBeforeSessionChange();
     const document = await this.client.loadSession(id);
-    if (document.characters[0].model !== this.context.model) {
-      throw new Error(`Session model "${document.characters[0].model}" is not available in this build`);
+    for (const character of document.characters) {
+      if (!findCharacterModel(character.model)) {
+        throw new Error(`Session model "${character.model}" is not available in this build`);
+      }
     }
 
     this.suppressAutosave = true;
     try {
-      this.applySceneState(document);
+      await this.applySceneState(document);
       this.current = { id: document.id, name: document.name, createdAt: document.createdAt };
       this.context.clearPoseHistory();
     } finally {
@@ -185,16 +200,18 @@ export class PersistenceController {
   private captureScene(updatedAt = new Date().toISOString()): SceneDocument {
     if (!this.current) throw new Error('No active session');
     const resolution = this.context.resolution();
+    const activeCharacterId = this.context.scene.active?.id;
     return {
       kind: SCENE_KIND,
       version: DOCUMENT_VERSION,
       id: this.current.id,
       name: this.current.name,
-      characters: [{
-        id: 'character-1',
-        model: this.context.model,
-        controls: serializeAllControls(this.context.pose),
-      }],
+      characters: this.context.scene.characters.map((character) => ({
+        id: character.id,
+        model: character.model.url,
+        controls: serializeAllControls(character.pose),
+      })),
+      ...(activeCharacterId ? { activeCharacterId } : {}),
       cameras: [{
         id: 'free',
         position: this.context.camera.position.toArray(),
@@ -256,8 +273,9 @@ export class PersistenceController {
     this.ui.setSessions(sessions, this.current?.id);
   }
 
-  private applySceneState(document: SceneDocument) {
-    applySceneControls(this.context.pose, document.characters[0].controls);
+  private async applySceneState(document: SceneDocument) {
+    await this.context.loadCharacters(document.characters);
+    if (document.activeCharacterId) this.context.state.setActiveCharacter(document.activeCharacterId);
     const camera = document.cameras[0];
     this.context.camera.position.fromArray(camera.position);
     this.context.cameraTarget.fromArray(camera.target);

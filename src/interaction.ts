@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { CharacterRig } from './rig.ts';
-import { CONTROL_JOINTS, CONTROL_JOINTS_BY_VIEW, ControlView, JointId, PoseGraph } from './pose.ts';
-import { AppState, COLORS, pointColor } from './state.ts';
+import { Character } from './character.ts';
+import { CONTROL_JOINTS, ControlView, JointId } from './pose.ts';
+import { CharacterScene } from './scene.ts';
+import { AppState, COLORS } from './state.ts';
 import { applySceneControls, ControlTransformDocument, serializeAllControls } from './documents.ts';
 
 /** Shift (or the right mouse button) makes a manipulation carry the node's subtree. */
@@ -26,63 +27,15 @@ function detailScale(view: ControlView): number {
   return view === 'body' ? 1 : view === 'face' ? 0.18 : 0.13;
 }
 
-/** Draggable control-point spheres drawn on top of the character. */
-export class ControlPoints {
-  group = new THREE.Group();
-  private spheres = new Map<JointId, THREE.Mesh>();
-  private hovered: JointId | null = null;
-
-  constructor(
-    private pose: PoseGraph,
-    private state: AppState,
-  ) {
-    const geo = new THREE.SphereGeometry(1, 20, 14);
-    for (const id of CONTROL_JOINTS) {
-      const mat = new THREE.MeshBasicMaterial({
-        color: COLORS.free,
-        depthTest: false,
-        transparent: true,
-        opacity: 0.9,
-      });
-      const sphere = new THREE.Mesh(geo, mat);
-      sphere.renderOrder = 10;
-      sphere.userData.jointId = id;
-      this.spheres.set(id, sphere);
-      this.group.add(sphere);
-    }
-  }
-
-  update() {
-    const visible = new Set(CONTROL_JOINTS_BY_VIEW[this.state.activeView]);
-    const detailSize = this.state.activeView === 'face' ? 0.006 : 0.005;
-    for (const [id, sphere] of this.spheres) {
-      sphere.visible = visible.has(id);
-      const anchor = id === 'Head' || id === 'LeftHand' || id === 'RightHand';
-      sphere.scale.setScalar(this.state.activeView === 'body' ? 0.024 : anchor ? 0.009 : detailSize);
-      sphere.position.copy(this.pose.get(id).pos);
-      (sphere.material as THREE.MeshBasicMaterial).color.setHex(
-        pointColor(this.state.selected === id, this.hovered === id),
-      );
-    }
-  }
-
-  setHovered(id: JointId | null) {
-    this.hovered = id;
-  }
-
-  get meshes(): THREE.Mesh[] {
-    return [...this.spheres.values()].filter((sphere) => sphere.visible);
-  }
-}
-
 /**
- * The helper widgets shown for the selected node, in the node's local frame:
- * the twist ring lies perpendicular to the node's aim, the direction helper
- * floats in front of the node along its current aim, and a passive stretch
- * ring (coplanar with the twist ring) shows how far the segment ending at
- * this node is from its natural length: its radius is the twist ring's
- * radius times the stretch factor, so it coincides with (hides behind) the
- * twist ring at natural length, grows when longer, shrinks when shorter.
+ * The helper widgets shown for the selected node of the active character,
+ * in the node's local frame: the twist ring lies perpendicular to the
+ * node's aim, the direction helper floats in front of the node along its
+ * current aim, and a passive stretch ring (coplanar with the twist ring)
+ * shows how far the segment ending at this node is from its natural
+ * length: its radius is the twist ring's radius times the stretch factor,
+ * so it coincides with (hides behind) the twist ring at natural length,
+ * grows when longer, shrinks when shorter.
  */
 export class Widgets {
   group = new THREE.Group();
@@ -97,7 +50,7 @@ export class Widgets {
   private hovered: 'ring' | 'helper' | null = null;
 
   constructor(
-    private pose: PoseGraph,
+    private scene: CharacterScene,
     private state: AppState,
   ) {
     this.ring = new THREE.Mesh(
@@ -140,6 +93,13 @@ export class Widgets {
     this.group.visible = false;
   }
 
+  /** The node the widgets belong to, if a joint of the active character is selected. */
+  target(): { character: Character; joint: JointId } | null {
+    const character = this.scene.active;
+    const joint = this.state.selected;
+    return character && joint ? { character, joint } : null;
+  }
+
   /** Rebuild the stretch ring's torus so its tube stays constant while the radius changes. */
   private setStretchRingRadius(radius: number) {
     radius = Math.max(radius, RING_TUBE);
@@ -150,9 +110,9 @@ export class Widgets {
   }
 
   helperWorldPos(target = new THREE.Vector3()): THREE.Vector3 {
-    const id = this.state.selected!;
-    const node = this.pose.get(id);
-    return this.pose.forward(id, target).multiplyScalar(HELPER_OFFSET * this.widgetScale()).add(node.pos);
+    const { character, joint } = this.target()!;
+    const node = character.pose.get(joint);
+    return character.pose.forward(joint, target).multiplyScalar(HELPER_OFFSET * this.widgetScale()).add(node.pos);
   }
 
   private widgetScale(): number {
@@ -164,10 +124,11 @@ export class Widgets {
   }
 
   update() {
-    const id = this.state.selected;
-    this.group.visible = id !== null;
-    if (!id) return;
-    const node = this.pose.get(id);
+    const target = this.target();
+    this.group.visible = target !== null;
+    if (!target) return;
+    const { character, joint } = target;
+    const node = character.pose.get(joint);
     const scale = this.widgetScale();
     (this.ring.material as THREE.MeshBasicMaterial).color.setHex(
       this.hovered === 'ring' ? COLORS.ringHover : COLORS.ring,
@@ -184,11 +145,11 @@ export class Widgets {
     this.ringPick.quaternion.copy(node.quat);
     this.ringPick.scale.setScalar(scale);
 
-    this.stretchRing.visible = this.pose.hasStretchSegment(id);
+    this.stretchRing.visible = character.pose.hasStretchSegment(joint);
     this.stretchRing.position.copy(node.pos);
     this.stretchRing.quaternion.copy(node.quat);
     this.stretchRing.scale.setScalar(scale);
-    this.setStretchRingRadius(RING_RADIUS * this.pose.segmentStretch(id));
+    this.setStretchRingRadius(RING_RADIUS * character.pose.segmentStretch(joint));
 
     const helperPos = this.helperWorldPos();
     this.helper.position.copy(helperPos);
@@ -201,20 +162,27 @@ export class Widgets {
   }
 }
 
+interface Pick {
+  character: Character;
+  joint: JointId;
+}
+
 type Drag =
-  | { mode: 'point' | 'subtree'; joint: JointId; grabOffset: THREE.Vector3 }
-  | { mode: 'aim'; joint: JointId; target: THREE.Vector3; withChildren: boolean }
-  | { mode: 'twist'; joint: JointId; axis: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3; lastAngle: number; withChildren: boolean }
-  | { mode: 'twist-pixels'; joint: JointId; lastX: number; withChildren: boolean }
+  | { mode: 'point' | 'subtree'; character: Character; joint: JointId; grabOffset: THREE.Vector3 }
+  | { mode: 'aim'; character: Character; joint: JointId; target: THREE.Vector3; withChildren: boolean }
+  | { mode: 'twist'; character: Character; joint: JointId; axis: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3; lastAngle: number; withChildren: boolean }
+  | { mode: 'twist-pixels'; character: Character; joint: JointId; lastX: number; withChildren: boolean }
   | { mode: 'pan'; lastX: number; lastY: number }
   | { mode: 'orbit'; lastX: number; lastY: number }
   | { mode: 'zoom'; lastX: number };
 
 type PoseSnapshot = Record<JointId, ControlTransformDocument>;
+/** Every character's controls, keyed by character id. */
+type SceneSnapshot = Record<string, PoseSnapshot>;
 type WidgetTarget = 'ring' | 'helper';
 const HISTORY_LIMIT = 50;
 
-function snapshotsEqual(a: PoseSnapshot, b: PoseSnapshot): boolean {
+function poseSnapshotsEqual(a: PoseSnapshot, b: PoseSnapshot): boolean {
   for (const id of CONTROL_JOINTS) {
     const left = a[id];
     const right = b[id];
@@ -222,6 +190,12 @@ function snapshotsEqual(a: PoseSnapshot, b: PoseSnapshot): boolean {
     if (left.rotation.some((value, index) => value !== right.rotation[index])) return false;
   }
   return true;
+}
+
+function sceneSnapshotsEqual(a: SceneSnapshot, b: SceneSnapshot): boolean {
+  const ids = Object.keys(a);
+  if (ids.length !== Object.keys(b).length) return false;
+  return ids.every((id) => b[id] !== undefined && poseSnapshotsEqual(a[id], b[id]));
 }
 
 /**
@@ -234,41 +208,38 @@ function snapshotsEqual(a: PoseSnapshot, b: PoseSnapshot): boolean {
  *  - drag the selected node's twist ring / direction helper: rotate it
  *  - Alt + left-drag: orbit; middle-drag: pan; Alt + right-drag:
  *    zoom; mousewheel (no drag): zoom
+ *
+ * Pose history holds every character's controls per step; adding or
+ * removing a character clears it (see main.ts).
  */
 export class Interaction {
   private canvas: HTMLCanvasElement;
   private camera: THREE.PerspectiveCamera;
   private cameraTarget: THREE.Vector3;
-  private rig: CharacterRig;
-  private pose: PoseGraph;
+  private scene: CharacterScene;
   private state: AppState;
-  private points: ControlPoints;
   private widgets: Widgets;
   private onSceneChanged: () => void;
   private raycaster = new THREE.Raycaster();
   private drag: Drag | null = null;
-  private gestureStart: PoseSnapshot | null = null;
-  private undoStack: PoseSnapshot[] = [];
-  private redoStack: PoseSnapshot[] = [];
+  private gestureStart: SceneSnapshot | null = null;
+  private undoStack: SceneSnapshot[] = [];
+  private redoStack: SceneSnapshot[] = [];
 
   constructor(opts: {
     canvas: HTMLCanvasElement;
     camera: THREE.PerspectiveCamera;
     cameraTarget: THREE.Vector3;
-    rig: CharacterRig;
-    pose: PoseGraph;
+    scene: CharacterScene;
     state: AppState;
-    points: ControlPoints;
     widgets: Widgets;
     onSceneChanged?: () => void;
   }) {
     this.canvas = opts.canvas;
     this.camera = opts.camera;
     this.cameraTarget = opts.cameraTarget;
-    this.rig = opts.rig;
-    this.pose = opts.pose;
+    this.scene = opts.scene;
     this.state = opts.state;
-    this.points = opts.points;
     this.widgets = opts.widgets;
     this.onSceneChanged = opts.onSceneChanged ?? (() => {});
 
@@ -290,12 +261,13 @@ export class Interaction {
 
   /** Called every frame. */
   update() {
-    this.points.update();
+    for (const character of this.scene.characters) character.points.update(this.state);
     this.widgets.update();
   }
 
+  /** Fit every character's mesh to its pose (after edits that may touch several). */
   applyPose() {
-    this.rig.applyPose(this.pose.solveSkeleton());
+    this.scene.applyPoses();
     this.onSceneChanged();
   }
 
@@ -326,12 +298,22 @@ export class Interaction {
     this.redoStack = [];
   }
 
-  private capturePose(): PoseSnapshot {
-    return serializeAllControls(this.pose);
+  private applyCharacter(character: Character) {
+    character.applyPose();
+    this.onSceneChanged();
   }
 
-  private restorePose(snapshot: PoseSnapshot) {
-    applySceneControls(this.pose, snapshot);
+  private capturePose(): SceneSnapshot {
+    return Object.fromEntries(
+      this.scene.characters.map((character) => [character.id, serializeAllControls(character.pose)]),
+    );
+  }
+
+  private restorePose(snapshot: SceneSnapshot) {
+    for (const character of this.scene.characters) {
+      const controls = snapshot[character.id];
+      if (controls) applySceneControls(character.pose, controls);
+    }
     this.applyPose();
   }
 
@@ -345,8 +327,8 @@ export class Interaction {
     this.gestureStart = null;
   }
 
-  private recordEdit(before: PoseSnapshot) {
-    if (snapshotsEqual(before, this.capturePose())) return;
+  private recordEdit(before: SceneSnapshot) {
+    if (sceneSnapshotsEqual(before, this.capturePose())) return;
     this.undoStack.push(before);
     if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
     this.redoStack = [];
@@ -381,25 +363,29 @@ export class Interaction {
     return this.raycaster.ray.intersectPlane(plane, out) ? out : null;
   }
 
-  private pickSphere(): JointId | null {
+  private pickSphere(): Pick | null {
     // Control spheres ignore depth, so pick the sphere nearest the ray, not the first hit.
-    let best: { joint: JointId; dist: number } | null = null;
-    for (const hit of this.raycaster.intersectObjects(this.points.meshes, false)) {
-      const joint = hit.object.userData.jointId as JointId;
-      if (!best || hit.distance < best.dist) best = { joint, dist: hit.distance };
+    let best: { pick: Pick; dist: number } | null = null;
+    for (const hit of this.raycaster.intersectObjects(this.scene.pickMeshes(), false)) {
+      if (best && hit.distance >= best.dist) continue;
+      const character = this.scene.get(hit.object.userData.characterId as string);
+      if (!character) continue;
+      best = { pick: { character, joint: hit.object.userData.jointId as JointId }, dist: hit.distance };
     }
-    return best ? best.joint : null;
+    return best ? best.pick : null;
   }
 
   private pickWidget(): WidgetTarget | null {
-    if (!this.state.selected) return null;
+    if (!this.widgets.target()) return null;
     if (this.raycaster.intersectObject(this.widgets.helperPick, false).length > 0) return 'helper';
     if (this.raycaster.intersectObject(this.widgets.ringPick, false).length > 0) return 'ring';
     return null;
   }
 
-  private setHovered(point: JointId | null, widget: WidgetTarget | null) {
-    this.points.setHovered(point);
+  private setHovered(point: Pick | null, widget: WidgetTarget | null) {
+    for (const character of this.scene.characters) {
+      character.points.setHovered(point && point.character === character ? point.joint : null);
+    }
     this.widgets.setHovered(widget);
     this.canvas.style.cursor = point || widget ? 'grab' : 'default';
   }
@@ -444,53 +430,56 @@ export class Interaction {
     // Widgets of the selected node take priority over the control spheres.
     const withChildren = cascades(e);
     const widget = this.pickWidget();
-    if (this.state.selected && widget) {
-      const joint = this.state.selected;
+    const target = this.widgets.target();
+    if (target && widget) {
+      const { character, joint } = target;
       this.beginPoseGesture();
       this.setHovered(null, widget);
       if (widget === 'helper') {
-        this.drag = { mode: 'aim', joint, target: this.widgets.helperWorldPos(), withChildren };
+        this.drag = { mode: 'aim', character, joint, target: this.widgets.helperWorldPos(), withChildren };
         this.canvas.setPointerCapture(e.pointerId);
         return;
       }
-      this.drag = this.beginTwist(e, joint, withChildren);
+      this.drag = this.beginTwist(e, character, joint, withChildren);
       this.canvas.setPointerCapture(e.pointerId);
       return;
     }
 
-    const joint = this.pickSphere();
-    if (!joint) {
+    const pick = this.pickSphere();
+    if (!pick) {
       this.setHovered(null, null);
       if (e.button === 0) this.state.select(null);
       return;
     }
-    this.state.select(joint);
+    const { character, joint } = pick;
+    this.state.select(joint, character.id);
     this.beginPoseGesture();
-    this.setHovered(joint, null);
+    this.setHovered(pick, null);
 
-    const center = this.pose.get(joint).pos;
+    const center = character.pose.get(joint).pos;
     const planeHit = this.hitViewPlane(center);
     const grabOffset = planeHit ? new THREE.Vector3().subVectors(center, planeHit) : new THREE.Vector3();
-    this.drag = { mode: withChildren ? 'subtree' : 'point', joint, grabOffset };
+    this.drag = { mode: withChildren ? 'subtree' : 'point', character, joint, grabOffset };
     this.canvas.setPointerCapture(e.pointerId);
   };
 
-  private beginTwist(e: PointerEvent, joint: JointId, withChildren: boolean): Drag {
-    const axis = this.pose.forward(joint);
+  private beginTwist(e: PointerEvent, character: Character, joint: JointId, withChildren: boolean): Drag {
+    const axis = character.pose.forward(joint);
     const camDir = this.camera.getWorldDirection(new THREE.Vector3());
     // Ring edge-on to the camera: fall back to horizontal mouse movement.
     if (Math.abs(camDir.dot(axis)) < 0.25) {
-      return { mode: 'twist-pixels', joint, lastX: e.clientX, withChildren };
+      return { mode: 'twist-pixels', character, joint, lastX: e.clientX, withChildren };
     }
     const u = new THREE.Vector3().crossVectors(axis, new THREE.Vector3(0, 1, 0));
     if (u.lengthSq() < 1e-6) u.set(1, 0, 0);
     u.normalize();
     const v = new THREE.Vector3().crossVectors(axis, u);
-    return { mode: 'twist', joint, axis, u, v, lastAngle: this.twistAngle(joint, axis, u, v) ?? 0, withChildren };
+    const lastAngle = this.twistAngle(character, joint, axis, u, v) ?? 0;
+    return { mode: 'twist', character, joint, axis, u, v, lastAngle, withChildren };
   }
 
-  private twistAngle(joint: JointId, axis: THREE.Vector3, u: THREE.Vector3, v: THREE.Vector3): number | null {
-    const center = this.pose.get(joint).pos;
+  private twistAngle(character: Character, joint: JointId, axis: THREE.Vector3, u: THREE.Vector3, v: THREE.Vector3): number | null {
+    const center = character.pose.get(joint).pos;
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(axis, center);
     const hit = new THREE.Vector3();
     if (!this.raycaster.ray.intersectPlane(plane, hit)) return null;
@@ -534,32 +523,33 @@ export class Interaction {
     }
 
     this.setRay(e);
+    const pose = d.character.pose;
 
     if (d.mode === 'point' || d.mode === 'subtree') {
-      const hit = this.hitViewPlane(this.pose.get(d.joint).pos);
+      const hit = this.hitViewPlane(pose.get(d.joint).pos);
       if (!hit) return;
-      this.pose.moveTo(d.joint, hit.add(d.grabOffset), d.mode === 'subtree');
-      this.applyPose();
+      pose.moveTo(d.joint, hit.add(d.grabOffset), d.mode === 'subtree');
+      this.applyCharacter(d.character);
     } else if (d.mode === 'aim') {
       const hit = this.hitViewPlane(d.target);
       if (!hit) return;
       d.target.copy(hit);
-      this.pose.aimAt(d.joint, d.target, d.withChildren);
-      this.applyPose();
+      pose.aimAt(d.joint, d.target, d.withChildren);
+      this.applyCharacter(d.character);
     } else if (d.mode === 'twist') {
-      const angle = this.twistAngle(d.joint, d.axis, d.u, d.v);
+      const angle = this.twistAngle(d.character, d.joint, d.axis, d.u, d.v);
       if (angle === null) return;
       let delta = angle - d.lastAngle;
       if (delta > Math.PI) delta -= 2 * Math.PI;
       if (delta < -Math.PI) delta += 2 * Math.PI;
       d.lastAngle = angle;
-      this.pose.twist(d.joint, delta, d.withChildren);
-      this.applyPose();
+      pose.twist(d.joint, delta, d.withChildren);
+      this.applyCharacter(d.character);
     } else if (d.mode === 'twist-pixels') {
       const delta = (e.clientX - d.lastX) * 0.01;
       d.lastX = e.clientX;
-      this.pose.twist(d.joint, delta, d.withChildren);
-      this.applyPose();
+      pose.twist(d.joint, delta, d.withChildren);
+      this.applyCharacter(d.character);
     }
   };
 
@@ -592,14 +582,14 @@ export class Interaction {
       .getWorldDirection(new THREE.Vector3())
       .multiplyScalar(notch * Z_STEP * detailScale(this.state.activeView));
     if (d && (d.mode === 'point' || d.mode === 'subtree')) {
-      this.pose.translate(d.joint, depthStep, d.mode === 'subtree');
-      this.applyPose();
+      d.character.pose.translate(d.joint, depthStep, d.mode === 'subtree');
+      this.applyCharacter(d.character);
       return;
     }
     if (d && d.mode === 'aim') {
       d.target.add(depthStep);
-      this.pose.aimAt(d.joint, d.target, d.withChildren);
-      this.applyPose();
+      d.character.pose.aimAt(d.joint, d.target, d.withChildren);
+      this.applyCharacter(d.character);
       return;
     }
     if (d) return; // no zoom mid-twist/pan

@@ -3,6 +3,7 @@ import {
   ControlView,
   JointId,
 } from './pose.ts';
+import { CharacterScene } from './scene.ts';
 import { AppState, pointColor } from './state.ts';
 
 const JOINT_LABELS: Partial<Record<JointId, string>> = {
@@ -24,12 +25,8 @@ const JOINT_LABELS: Partial<Record<JointId, string>> = {
   RightEye: 'Right Eye',
   LeftBrow: 'Left Brow',
   RightBrow: 'Right Brow',
-  UpperLip: 'Upper Lip',
-  LowerLip: 'Lower Lip',
   LeftMouthCorner: 'Left Mouth Corner',
   RightMouthCorner: 'Right Mouth Corner',
-  LeftCheek: 'Left Cheek',
-  RightCheek: 'Right Cheek',
 };
 
 for (const side of ['Left', 'Right'] as const) {
@@ -125,29 +122,21 @@ const VIEW_MAPS: Record<ControlView, ViewMap> = {
       Head: [60, 20],
       LeftBrow: [78, 45],
       RightBrow: [42, 45],
-      LeftEye: [78, 63],
-      RightEye: [42, 63],
-      LeftCheek: [83, 85],
-      RightCheek: [37, 85],
-      LeftMouthCorner: [75, 106],
-      RightMouthCorner: [45, 106],
-      UpperLip: [60, 101],
-      LowerLip: [60, 114],
-      Jaw: [60, 137],
+      LeftEye: [78, 64],
+      RightEye: [42, 64],
+      LeftMouthCorner: [76, 104],
+      RightMouthCorner: [44, 104],
+      Jaw: [60, 132],
     },
     segments: [
       ['Head', 'LeftBrow'],
       ['Head', 'RightBrow'],
       ['LeftBrow', 'LeftEye'],
       ['RightBrow', 'RightEye'],
-      ['LeftEye', 'LeftCheek'],
-      ['RightEye', 'RightCheek'],
-      ['LeftCheek', 'LeftMouthCorner'],
-      ['RightCheek', 'RightMouthCorner'],
-      ['LeftMouthCorner', 'UpperLip'],
-      ['RightMouthCorner', 'UpperLip'],
-      ['UpperLip', 'LowerLip'],
-      ['LowerLip', 'Jaw'],
+      ['LeftEye', 'LeftMouthCorner'],
+      ['RightEye', 'RightMouthCorner'],
+      ['LeftMouthCorner', 'Jaw'],
+      ['RightMouthCorner', 'Jaw'],
     ],
   },
 };
@@ -167,15 +156,31 @@ const FRAME_BUTTONS: Record<ControlView, string> = {
   face: 'btn-frame-face',
 };
 
-/** Sidebar maps for body, hand, and face controls plus selection and reset. */
+type SidebarTab = 'controls' | 'scene';
+
+const SIDEBAR_TABS: Record<SidebarTab, { button: string; panel: string }> = {
+  controls: { button: 'tab-controls', panel: 'panel-controls' },
+  scene: { button: 'tab-scene', panel: 'panel-scene' },
+};
+
+/**
+ * The sidebar: a Controls tab for the selected character (view tabs, control
+ * map, pose library, reset/delete — empty while nothing is selected, and
+ * opened automatically when a point gets selected) and a Scene tab for
+ * sessions, adding characters, and rendering.
+ */
 export class UI {
   private circles = new Map<JointId, SVGCircleElement>();
   private jointName = document.getElementById('joint-name') as HTMLElement;
   private mapTitle = document.getElementById('control-view-title') as HTMLElement;
+  private selectionPanel = document.getElementById('selection-panel') as HTMLElement;
   private renderedView: ControlView | null = null;
+  private tab: SidebarTab = 'scene';
+  private hadSelection = false;
 
   constructor(
     private state: AppState,
+    private scene: CharacterScene,
     onReset: () => void,
     private onFrameView: (view: ControlView) => void,
     private onViewChange: (view: ControlView) => void,
@@ -187,6 +192,9 @@ export class UI {
     for (const [view, buttonId] of Object.entries(FRAME_BUTTONS) as [ControlView, string][]) {
       document.getElementById(buttonId)!.addEventListener('click', () => this.frameView(view));
     }
+    for (const [tab, ids] of Object.entries(SIDEBAR_TABS) as [SidebarTab, { button: string }][]) {
+      document.getElementById(ids.button)!.addEventListener('click', () => this.showTab(tab));
+    }
 
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.state.select(null);
@@ -194,6 +202,14 @@ export class UI {
 
     this.state.onChange(() => this.render());
     this.render();
+  }
+
+  private showTab(tab: SidebarTab) {
+    this.tab = tab;
+    for (const [name, ids] of Object.entries(SIDEBAR_TABS) as [SidebarTab, { button: string; panel: string }][]) {
+      document.getElementById(ids.button)!.classList.toggle('active', name === tab);
+      document.getElementById(ids.panel)!.hidden = name !== tab;
+    }
   }
 
   /** Switch control maps only — the camera stays where the user left it. */
@@ -262,6 +278,13 @@ export class UI {
     if (this.renderedView !== this.state.activeView) this.buildControlMap();
 
     const selected = this.state.selected;
+    const character = this.scene.active;
+    const hasSelection = selected !== null && character !== null;
+    // Picking a point is the cue to show its controls; deselecting leaves the tab alone.
+    if (hasSelection && !this.hadSelection) this.showTab('controls');
+    else this.showTab(this.tab);
+    this.hadSelection = hasSelection;
+    this.selectionPanel.hidden = !hasSelection;
     for (const [id, circle] of this.circles) {
       const isSelected = selected === id;
       circle.setAttribute('fill', `#${pointColor(isSelected).toString(16).padStart(6, '0')}`);
@@ -270,6 +293,8 @@ export class UI {
     for (const [view, buttonId] of Object.entries(VIEW_BUTTONS) as [ControlView, string][]) {
       document.getElementById(buttonId)!.classList.toggle('active', view === this.state.activeView);
     }
-    this.jointName.textContent = selected ? JOINT_LABELS[selected] ?? selected : 'none';
+    this.jointName.textContent = hasSelection
+      ? `${character.model.label} · ${JOINT_LABELS[selected] ?? selected}`
+      : '';
   }
 }

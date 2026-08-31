@@ -57,12 +57,8 @@ export type JointId =
   | 'RightEye'
   | 'LeftBrow'
   | 'RightBrow'
-  | 'UpperLip'
-  | 'LowerLip'
   | 'LeftMouthCorner'
-  | 'RightMouthCorner'
-  | 'LeftCheek'
-  | 'RightCheek';
+  | 'RightMouthCorner';
 
 export type ControlView = 'body' | 'leftHand' | 'rightHand' | 'face';
 
@@ -128,12 +124,8 @@ export const JOINT_DEFS: JointDef[] = [
   { id: 'RightEye', parent: 'Head' },
   { id: 'LeftBrow', parent: 'Head' },
   { id: 'RightBrow', parent: 'Head' },
-  { id: 'UpperLip', parent: 'Head' },
-  { id: 'LowerLip', parent: 'Jaw' },
   { id: 'LeftMouthCorner', parent: 'Head' },
   { id: 'RightMouthCorner', parent: 'Head' },
-  { id: 'LeftCheek', parent: 'Head' },
-  { id: 'RightCheek', parent: 'Head' },
 ];
 
 /** Skeleton parent of each joint. */
@@ -174,18 +166,19 @@ export const RIGHT_HAND_JOINTS: JointId[] = [
   'RightPinky1', 'RightPinky2', 'RightPinky3',
 ];
 
+/**
+ * The facial bones of the Renderpeople rigs, each driven as its own control
+ * point. The rigs' eyelid bones are left out: they pivot exactly where the
+ * eye bones do, so their control points would sit on top of the eyes'.
+ */
 export const FACE_JOINTS: JointId[] = [
   'Jaw',
   'LeftEye',
   'RightEye',
   'LeftBrow',
   'RightBrow',
-  'UpperLip',
-  'LowerLip',
   'LeftMouthCorner',
   'RightMouthCorner',
-  'LeftCheek',
-  'RightCheek',
 ];
 
 export const DETAIL_JOINTS: JointId[] = [...LEFT_HAND_JOINTS, ...RIGHT_HAND_JOINTS, ...FACE_JOINTS];
@@ -264,13 +257,10 @@ export const CONTROL_PARENT: Partial<Record<JointId, JointId | null>> = {
   RightEye: 'Head',
   LeftBrow: 'Head',
   RightBrow: 'Head',
-  UpperLip: 'Head',
-  LowerLip: 'Jaw',
   LeftMouthCorner: 'Head',
   RightMouthCorner: 'Head',
-  LeftCheek: 'Head',
-  RightCheek: 'Head',
 };
+
 
 /**
  * Non-control skeleton joints that ride rigidly on a control point: their
@@ -343,6 +333,10 @@ export class PoseGraph {
       parent.children.push(node);
     }
 
+    this.computeSpineFractions();
+  }
+
+  private computeSpineFractions() {
     const b = (id: JointId) => this.bindPositions.get(id)!;
     const d0 = b('Hips').distanceTo(b('Spine'));
     const d1 = b('Spine').distanceTo(b('Spine1'));

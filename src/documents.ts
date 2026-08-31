@@ -47,16 +47,21 @@ export interface SceneCameraDocument {
   };
 }
 
+export interface SceneCharacterDocument {
+  id: string;
+  model: string;
+  controls: Record<JointId, ControlTransformDocument>;
+}
+
 export interface SceneDocument {
   kind: typeof SCENE_KIND;
   version: typeof DOCUMENT_VERSION;
   id: string;
   name: string;
-  characters: [{
-    id: string;
-    model: string;
-    controls: Record<JointId, ControlTransformDocument>;
-  }];
+  /** Any number of characters, each with its own model and pose. */
+  characters: SceneCharacterDocument[];
+  /** The character whose detail controls were showing; one of characters[].id. */
+  activeCharacterId?: string;
   cameras: [SceneCameraDocument];
   activeCameraId: string;
   activeView: ControlView;
@@ -185,16 +190,30 @@ export function parsePoseDocument(value: unknown): PoseDocument {
   };
 }
 
+function parseSceneCharacter(value: unknown, path: string): SceneCharacterDocument {
+  const record = requireRecord(value, path);
+  return {
+    id: requireString(record.id, `${path}.id`),
+    model: requireString(record.model, `${path}.model`),
+    controls: parseControls(record.controls, CONTROL_JOINTS, `${path}.controls`) as Record<JointId, ControlTransformDocument>,
+  };
+}
+
 export function parseSceneDocument(value: unknown): SceneDocument {
   const record = requireRecord(value, 'scene');
   if (record.kind !== SCENE_KIND) throw new Error(`scene.kind must be "${SCENE_KIND}"`);
   if (record.version !== DOCUMENT_VERSION) {
     throw new Error(`Unsupported scene version "${String(record.version)}"; expected ${DOCUMENT_VERSION}`);
   }
-  if (!Array.isArray(record.characters) || record.characters.length !== 1) {
-    throw new Error('scene.characters must contain exactly one character in this version');
+  if (!Array.isArray(record.characters)) throw new Error('scene.characters must be an array');
+  const characters = record.characters.map((value, index) => parseSceneCharacter(value, `scene.characters[${index}]`));
+  const ids = new Set(characters.map((character) => character.id));
+  if (ids.size !== characters.length) throw new Error('scene.characters must have unique ids');
+  let activeCharacterId: string | undefined;
+  if (record.activeCharacterId !== undefined) {
+    activeCharacterId = requireString(record.activeCharacterId, 'scene.activeCharacterId');
+    if (!ids.has(activeCharacterId)) throw new Error('scene.activeCharacterId does not reference a character');
   }
-  const character = requireRecord(record.characters[0], 'scene.characters[0]');
   if (!Array.isArray(record.cameras) || record.cameras.length !== 1) {
     throw new Error('scene.cameras must contain exactly one camera in this version');
   }
@@ -206,11 +225,8 @@ export function parseSceneDocument(value: unknown): SceneDocument {
     version: DOCUMENT_VERSION,
     id: requireString(record.id, 'scene.id'),
     name: requireString(record.name, 'scene.name'),
-    characters: [{
-      id: requireString(character.id, 'scene.characters[0].id'),
-      model: requireString(character.model, 'scene.characters[0].model'),
-      controls: parseControls(character.controls, CONTROL_JOINTS, 'scene.characters[0].controls') as Record<JointId, ControlTransformDocument>,
-    }],
+    characters,
+    ...(activeCharacterId !== undefined ? { activeCharacterId } : {}),
     cameras: [camera],
     activeCameraId,
     activeView: parseView(record.activeView, 'scene.activeView'),

@@ -17,18 +17,29 @@ export function pointColor(selected: boolean, hovered = false): number {
   return hovered ? COLORS.freeHover : COLORS.free;
 }
 
-/** Shared selection state, observed by both the 3D view and the sidebar. */
-export class AppState {
-  selected: JointId | null = null;
-  activeView: ControlView = 'body';
-
-  private listeners: (() => void)[] = [];
-  private selections: Record<ControlView, JointId | null> = {
+function defaultSelections(): Record<ControlView, JointId | null> {
+  return {
     body: null,
     leftHand: 'LeftHand',
     rightHand: 'RightHand',
     face: 'Head',
   };
+}
+
+/**
+ * Shared selection state, observed by both the 3D view and the sidebar.
+ * The selection is a joint of the active character; picking a joint on
+ * another character makes that one active. Detail views (hands, face) only
+ * ever show the active character.
+ */
+export class AppState {
+  /** Id of the character whose joint is selected and whose details are shown. */
+  activeCharacter: string | null = null;
+  selected: JointId | null = null;
+  activeView: ControlView = 'body';
+
+  private listeners: (() => void)[] = [];
+  private selections = defaultSelections();
 
   onChange(fn: () => void) {
     this.listeners.push(fn);
@@ -38,17 +49,33 @@ export class AppState {
     for (const fn of this.listeners) fn();
   }
 
-  select(id: JointId | null) {
-    if (this.selected === id) return;
+  /** Select a joint, on the active character unless `characterId` names another. */
+  select(id: JointId | null, characterId: string | null = this.activeCharacter) {
+    if (id !== null && characterId === null) return;
+    const characterChanged = id !== null && characterId !== this.activeCharacter;
+    if (!characterChanged && this.selected === id) return;
+    if (characterChanged) {
+      this.activeCharacter = characterId;
+      this.selections = defaultSelections();
+    }
     this.selected = id;
     this.selections[this.activeView] = id;
+    this.emit();
+  }
+
+  /** Make a character active with its view's default selection (after add/delete). */
+  setActiveCharacter(id: string | null) {
+    if (this.activeCharacter === id) return;
+    this.activeCharacter = id;
+    this.selections = defaultSelections();
+    this.selected = id === null ? null : this.selections[this.activeView];
     this.emit();
   }
 
   setView(view: ControlView) {
     if (this.activeView === view) return;
     this.activeView = view;
-    this.selected = this.selections[view];
+    this.selected = this.activeCharacter === null ? null : this.selections[view];
     this.emit();
   }
 }
