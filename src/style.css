@@ -298,6 +298,26 @@ button.active {
   pointer-events: none;
 }
 
+/* Side/Top inset views drawn into the canvas; these frames just outline and label them. */
+.popup-view {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.popup-view span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 1px 6px;
+  font-size: 11px;
+  color: #d7dbe2;
+  background: rgba(20, 23, 30, 0.7);
+  border-radius: 3px 0 3px 0;
+}
+
 #scene-canvas {
   display: block;
   width: 100%;

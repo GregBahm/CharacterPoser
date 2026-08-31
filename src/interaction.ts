@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Character } from './character.ts';
 import { CONTROL_JOINTS, ControlView, isAimOnlyJoint, JointId } from './pose.ts';
+import { PopupView, PopupViews } from './popup-views.ts';
 import { CharacterScene } from './scene.ts';
 import { AppState, COLORS } from './state.ts';
 import { applySceneControls, ControlTransformDocument, serializeAllControls } from './documents.ts';
@@ -174,7 +175,8 @@ interface Pick {
 }
 
 type Drag =
-  | { mode: 'point' | 'subtree'; character: Character; joint: JointId; grabOffset: THREE.Vector3 }
+  /** `view` is the inset the drag started in, or null for the main view. */
+  | { mode: 'point' | 'subtree'; character: Character; joint: JointId; grabOffset: THREE.Vector3; view: PopupView | null }
   | { mode: 'aim'; character: Character; joint: JointId; target: THREE.Vector3; withChildren: boolean }
   | { mode: 'twist'; character: Character; joint: JointId; axis: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3; lastAngle: number; withChildren: boolean }
   | { mode: 'twist-pixels'; character: Character; joint: JointId; lastX: number; withChildren: boolean }
@@ -225,6 +227,7 @@ export class Interaction {
   private scene: CharacterScene;
   private state: AppState;
   private widgets: Widgets;
+  private popups: PopupViews;
   private onSceneChanged: () => void;
   private raycaster = new THREE.Raycaster();
   private drag: Drag | null = null;
@@ -239,6 +242,7 @@ export class Interaction {
     scene: CharacterScene;
     state: AppState;
     widgets: Widgets;
+    popups: PopupViews;
     onSceneChanged?: () => void;
   }) {
     this.canvas = opts.canvas;
@@ -247,6 +251,7 @@ export class Interaction {
     this.scene = opts.scene;
     this.state = opts.state;
     this.widgets = opts.widgets;
+    this.popups = opts.popups;
     this.onSceneChanged = opts.onSceneChanged ?? (() => {});
 
     this.canvas.addEventListener('pointerdown', this.onPointerDown);
@@ -271,6 +276,7 @@ export class Interaction {
   update() {
     for (const character of this.scene.characters) character.points.update(this.state);
     this.widgets.update();
+    this.popups.update();
   }
 
   /** Fit every character's mesh to its pose (after edits that may touch several). */
@@ -363,12 +369,52 @@ export class Interaction {
     this.raycaster.setFromCamera(this.ndc(e), this.camera);
   }
 
-  /** Intersect the current ray with the view-parallel plane through `point`. */
-  private hitViewPlane(point: THREE.Vector3): THREE.Vector3 | null {
-    const normal = this.camera.getWorldDirection(new THREE.Vector3());
+  /** Aim the ray through the main view or through an inset view. */
+  private setRayFor(e: { clientX: number; clientY: number }, view: PopupView | null) {
+    if (view) this.raycaster.setFromCamera(this.popups.ndcIn(view, e.clientX, e.clientY), this.popups.cameras[view]);
+    else this.setRay(e);
+  }
+
+  private cameraFor(view: PopupView | null): THREE.Camera {
+    return view ? this.popups.cameras[view] : this.camera;
+  }
+
+  /** Intersect the current ray with the plane through `point` parallel to the camera's view. */
+  private hitViewPlane(point: THREE.Vector3, camera: THREE.Camera = this.camera): THREE.Vector3 | null {
+    const normal = camera.getWorldDirection(new THREE.Vector3());
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, point);
     const out = new THREE.Vector3();
     return this.raycaster.ray.intersectPlane(plane, out) ? out : null;
+  }
+
+  /** Whether the ray hits the selected point's sphere (the only thing an inset offers). */
+  private hitsSelectedSphere(): boolean {
+    const target = this.widgets.target();
+    if (!target) return false;
+    const sphere = target.character.points.sphere(target.joint);
+    return this.raycaster.intersectObject(sphere, false).length > 0;
+  }
+
+  /**
+   * Pointer down inside an inset: grab the selected point to move it in that
+   * view's plane; a right-click on empty space flips the view around instead.
+   */
+  private onPopupPointerDown(e: PointerEvent, view: PopupView) {
+    if (e.button !== 0 && e.button !== 2) return;
+    const target = this.widgets.target();
+    if (!target) return;
+    this.setRayFor(e, view);
+    if (!this.hitsSelectedSphere()) {
+      if (e.button === 2) this.popups.flip(view);
+      return;
+    }
+    const { character, joint } = target;
+    this.beginPoseGesture();
+    const center = character.pose.get(joint).pos;
+    const planeHit = this.hitViewPlane(center, this.cameraFor(view));
+    const grabOffset = planeHit ? new THREE.Vector3().subVectors(center, planeHit) : new THREE.Vector3();
+    this.drag = { mode: cascades(e) ? 'subtree' : 'point', character, joint, grabOffset, view };
+    this.canvas.setPointerCapture(e.pointerId);
   }
 
   private pickSphere(): Pick | null {
@@ -402,6 +448,17 @@ export class Interaction {
   }
 
   private updateHover(e: { clientX: number; clientY: number }) {
+    const view = this.popups.viewAt(e.clientX, e.clientY);
+    if (view) {
+      // Insets only offer the selected point.
+      this.setRayFor(e, view);
+      const target = this.widgets.target();
+      const hit = this.hitsSelectedSphere();
+      this.popups.setHovered(hit);
+      this.setHovered(hit && target ? target : null, null);
+      return;
+    }
+    this.popups.setHovered(false);
     this.setRay(e);
     const widget = this.pickWidget();
     this.setHovered(widget ? null : this.pickSphere(), widget);
@@ -440,6 +497,12 @@ export class Interaction {
 
   private onPointerDown = (e: PointerEvent) => {
     if (this.drag) return;
+
+    const view = this.popups.viewAt(e.clientX, e.clientY);
+    if (view) {
+      this.onPopupPointerDown(e, view);
+      return;
+    }
 
     if (e.altKey && e.button === 0) {
       e.preventDefault();
@@ -502,7 +565,7 @@ export class Interaction {
     const center = character.pose.get(joint).pos;
     const planeHit = this.hitViewPlane(center);
     const grabOffset = planeHit ? new THREE.Vector3().subVectors(center, planeHit) : new THREE.Vector3();
-    this.drag = { mode: withChildren ? 'subtree' : 'point', character, joint, grabOffset };
+    this.drag = { mode: withChildren ? 'subtree' : 'point', character, joint, grabOffset, view: null };
     this.canvas.setPointerCapture(e.pointerId);
   };
 
@@ -566,15 +629,20 @@ export class Interaction {
       return;
     }
 
-    this.setRay(e);
     const pose = d.character.pose;
 
     if (d.mode === 'point' || d.mode === 'subtree') {
-      const hit = this.hitViewPlane(pose.get(d.joint).pos);
+      // Point drags may live in an inset; everything else is main-view only.
+      this.setRayFor(e, d.view);
+      const hit = this.hitViewPlane(pose.get(d.joint).pos, this.cameraFor(d.view));
       if (!hit) return;
       pose.moveTo(d.joint, hit.add(d.grabOffset), d.mode === 'subtree');
       this.applyCharacter(d.character);
-    } else if (d.mode === 'aim') {
+      return;
+    }
+
+    this.setRay(e);
+    if (d.mode === 'aim') {
       const hit = this.hitViewPlane(d.target);
       if (!hit) return;
       d.target.copy(hit);
@@ -620,6 +688,13 @@ export class Interaction {
     const notch = Math.sign(e.deltaY);
     if (notch === 0) return;
     const d = this.drag;
+
+    // Over an inset the wheel zooms both insets (unless a main-view drag is mid-depth-move).
+    const view = this.popups.viewAt(e.clientX, e.clientY);
+    if (view && !(d && 'view' in d && d.view === null)) {
+      this.popups.zoom(Math.pow(1.12, notch));
+      return;
+    }
 
     // Wheel-up brings the point toward the camera, wheel-down pushes it away
     // (along the view direction, so this stays "depth" from any orbit angle).

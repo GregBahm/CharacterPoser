@@ -74,6 +74,13 @@ node's children rigidly as if they were parented to it.**
 - Hovering brightens the exact control point, twist ring, or direction helper that will be
   manipulated. **Ctrl+Z** undoes pose edits and **Ctrl+Shift+Z** redoes them (up to 50 steps);
   camera navigation is not included in pose history.
+- **Side/Top insets.** Selecting a point pops two small views over the viewport (right edge, or
+  left if they would cover the point): the scene from the side (the main camera swung 90° around
+  the vertical through the point) and from above, at the main camera's distance scaled to the inset
+  size so the point looks the same, showing only that point. Drag the point in them to move it in
+  that view's plane; mousewheel over either inset zooms both; right-click empty space in an inset to
+  look from the opposite direction (other side / bottom), which sticks until right-clicked again.
+  They are captured when the point is selected and stay put until the selection changes.
 - **Eyes** are aim-only: clicking one selects it, only the direction helper is offered (no drag,
   no twist), and both eyes turn together.
 - **Escape** deselects; **Reset Pose** returns to the bind pose.
@@ -108,6 +115,8 @@ node's children rigidly as if they were parented to it.**
   Leaf bones (head/hands/feet) follow their node's rotation delta exactly.
 - `src/control-points.ts`, `src/interaction.ts` — per-character control spheres, the widgets,
   and all pointer/wheel handling; pose history snapshots every character.
+- `src/popup-views.ts` — the Side/Top inset views: capture, layout, cameras, and drawing them into
+  the main canvas with scissored viewports after the frame.
 - `src/render-modes.ts` — the three render modes. Untextured (clay) and Textured are Lambert
   shading without/with the models' embedded diffuse textures, optionally with N8AO screen-space
   ambient occlusion (neural denoise, accumulating over frames while the view is still); Path Traced runs `three-gpu-pathtracer` progressively with the textures,

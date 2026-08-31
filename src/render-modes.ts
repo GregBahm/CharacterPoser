@@ -40,6 +40,8 @@ export class SceneRenderer {
   /** Screen-space ambient occlusion for the raster modes (per-browser preference). */
   ssao: boolean;
   overlay = new THREE.Scene();
+  /** Draws extra views (insets) over the finished frame; plain raster. */
+  insets: ((renderer: THREE.WebGLRenderer) => void) | null = null;
 
   private pathTracer: WebGLPathTracer | null = null;
   private composer: EffectComposer | null = null;
@@ -71,6 +73,8 @@ export class SceneRenderer {
   ) {
     // Soft-light stand-ins are RectAreaLights; raster fallback frames need the LTC tables.
     RectAreaLightUniformsLib.init();
+    // Shadow maps are rendered once per frame (see render), not once per view.
+    renderer.shadowMap.autoUpdate = false;
     for (const root of opts.shaded) this.trackMeshes(root);
     this.mode = loadStoredMode() ?? 'textured';
     this.ssao = loadStoredFlag(SSAO_KEY) ?? false;
@@ -145,9 +149,11 @@ export class SceneRenderer {
     this.lastChange = performance.now();
   }
 
-  /** Draw one frame in the current mode, then the overlay on top. */
+  /** Draw one frame in the current mode, the overlay on top, then any insets. */
   render() {
     this.detectCameraChange();
+    this.renderer.shadowMap.needsUpdate = true;
+    this.renderer.setScissorTest(false);
 
     if (this.mode === 'pathtraced') {
       this.renderPathTraced();
@@ -159,6 +165,8 @@ export class SceneRenderer {
     this.renderer.clearDepth();
     this.renderer.render(this.overlay, this.camera);
     this.renderer.autoClear = true;
+
+    this.insets?.(this.renderer);
   }
 
   private emit() {

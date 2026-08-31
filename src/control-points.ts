@@ -78,6 +78,10 @@ export class ControlPoints {
     return [...this.spheres.values()].filter((sphere) => sphere.userData.pickable);
   }
 
+  sphere(id: JointId): THREE.Mesh {
+    return this.spheres.get(id)!;
+  }
+
   dispose() {
     for (const sphere of this.spheres.values()) (sphere.material as THREE.Material).dispose();
     this.geometry.dispose();

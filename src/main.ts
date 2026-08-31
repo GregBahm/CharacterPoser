@@ -6,6 +6,7 @@ import { defaultLighting, SceneLighting } from './lighting.ts';
 import { LightingPanel } from './lighting-ui.ts';
 import { DEFAULT_CHARACTER_MODEL, findCharacterModel } from './models.ts';
 import { CONTROL_JOINTS_BY_VIEW, ControlView } from './pose.ts';
+import { PopupViews } from './popup-views.ts';
 import { AppState } from './state.ts';
 import { UI } from './ui.ts';
 import { PersistenceController } from './persistence-controller.ts';
@@ -83,6 +84,9 @@ async function init() {
   });
   const widgets = new Widgets(characters, state);
   sceneRenderer.overlay.add(widgets.group);
+  // Side/Top insets for placing the selected point in depth.
+  const popups = new PopupViews(characters, state, camera, canvas, viewportArea);
+  sceneRenderer.insets = (r) => popups.render(r, scene);
 
   let persistence: PersistenceController | null = null;
   const interaction = new Interaction({
@@ -92,6 +96,7 @@ async function init() {
     scene: characters,
     state,
     widgets,
+    popups,
     onSceneChanged: () => {
       sceneRenderer.markGeometryChanged();
       persistence?.notifySceneChanged();
@@ -271,6 +276,7 @@ async function init() {
     interaction,
     sceneRenderer,
     lighting,
+    popups,
     get character() {
       return characters.active;
     },
