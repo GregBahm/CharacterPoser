@@ -10,6 +10,8 @@ export const CHARACTER_MODELS: readonly CharacterModel[] = [
   { label: 'Carla', url: '/rp_carla_rigged_001_zup_a.fbx' },
   { label: 'Claudia', url: '/rp_claudia_rigged_002_yup_a.fbx' },
   { label: 'Eric', url: '/rp_eric_rigged_001_yup_a.fbx' },
+  { label: 'Ruth', url: '/ruth.fbx' },
+  { label: 'Scooter', url: '/scooter.fbx' },
 ];
 
 export const DEFAULT_CHARACTER_MODEL = CHARACTER_MODELS[0];
