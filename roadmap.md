@@ -3,8 +3,9 @@
 Immediate goals for the posing tool. Items are worked one at a time — discussed, built, and
 tested in the browser until they feel right — roughly in the order below.
 
-The tool is ultimately meant to be **strongly coupled to ComfyUI AI workflows**: poses built here
-are pushed straight into a running ComfyUI as OpenPose controlnet input.
+The tool is ultimately meant to create **storyboards with consistent characters** and be strongly
+coupled to ComfyUI and other AI image-generation workflows: composed shots built here can be sent
+to generation pipelines with their character poses and camera framing intact.
 
 ## Architecture decisions
 
@@ -13,10 +14,9 @@ Settled up front so later items don't have to be bolted on:
 - **Local file server.** A small Node backend runs alongside Vite. Sessions, the pose library,
   and character/environment assets are plain files on disk, so work can be moved between
   computers and backed up. Not browser-only storage.
-- **Scene document.** The unit of save/load is a `Scene`: `characters[]` (each with a model
-  reference and its own pose graph), an environment reference, and `cameras[]` (each carrying
-  resolution and FOV so exports match the generation size). Introduced with sessions (below),
-  not after multi-character support.
+- **Storyboard document.** A session contains an ordered array of self-contained shots. Every shot
+  stores `characters[]` (each with a model reference and pose graph), lighting/environment state,
+  camera framing, and a thumbnail. Existing single-scene sessions migrate into their first shot.
 - **ComfyUI integration lives server-side.** Pushing poses, running pose estimation on photos,
   and the ComfyUI connection settings all go through the backend (ComfyUI/Python), not the
   browser.
@@ -44,6 +44,10 @@ Settled up front so later items don't have to be bolted on:
 - [x] **Pose library.** Save and load full-body poses, hand poses, and face poses as files.
 - [x] **Sessions.** Save the scene state on every edit; create new sessions and load existing
       ones. This is where the `Scene` document is introduced.
+- [x] **Storyboard shots.** A thumbnail tray selects, duplicates, deletes, and smoothly
+      drag-reorders self-contained scenes inside a session. The active shot appears as a solid
+      blue card, autosaves, and receives its thumbnail when the user leaves it. New blank shots
+      begin with the default character.
 
 ## Scene
 

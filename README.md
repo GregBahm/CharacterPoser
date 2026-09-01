@@ -3,7 +3,8 @@
 Direct-manipulation character posing in the browser. There is no IK solver: the body is a tree of
 free-floating control points that are moved directly, OpenPose-style, and the mesh stretches to fit
 the points wherever they go. The same model extends into close-up finger and bone-driven facial
-controls. The tool will eventually drive AI image generation through ComfyUI controlnet.
+controls. The tool is intended for building storyboards with consistent characters, then driving AI image
+generation through ComfyUI and other image-generation workflows.
 
 ## Running
 
@@ -23,9 +24,15 @@ launching to keep them elsewhere for backup or transfer to another computer.
 
 ## Persistence
 
-- The current session autosaves after pose, camera, reset, framing, and control-view changes.
+- A session is an ordered storyboard of self-contained shots. Each shot stores its characters,
+  poses, camera, lighting, control view, main-view bookmark, and thumbnail.
+- The current shot autosaves after pose, camera, reset, framing, and control-view changes.
   On startup, the most recently updated valid session is loaded; if none exists, a default
   session is created.
+- Use the tray along the bottom to select a shot. The active shot is shown in solid blue; its
+  thumbnail is captured when you leave it. Drag shots to reorder them with live animated spacing,
+  use the hover actions to duplicate or delete a shot, or use **+** to add a new shot containing
+  the default character in its base pose. A session always keeps at least one shot.
 - Use **New** to start a reset session or select a saved session and choose **Load**.
 - The pose library saves the currently active control scope. Full-body poses preserve the
   character's current hand and facial details when loaded. Hand and face poses are stored
@@ -44,7 +51,7 @@ any number of characters, each keeping its model for life:
 - In the **Body** view every character's body points are shown and pickable; picking one makes
   its character active. The **Face** and **Hand** views show only the active character's
   controls, and the pose library saves/loads the active character.
-- The characters, their poses, and which one is active are saved with the session. Adding or
+- The characters, their poses, and which one is active are saved with each shot. Adding or
   removing a character clears pose history.
 - The FBX files in `public/` are the `SourceArt/` originals with their embedded 8K diffuse textures
   shrunk to 2K by `tools/shrink-textures.ps1` (which drives `tools/fbx-texture.mjs`, a binary-FBX

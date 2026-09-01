@@ -20,7 +20,8 @@ import {
   MAX_LIGHTS,
 } from './lighting.ts';
 
-export const DOCUMENT_VERSION = 1;
+export const POSE_DOCUMENT_VERSION = 1;
+export const SCENE_DOCUMENT_VERSION = 2;
 export const SCENE_KIND = 'character-poser-scene';
 export const POSE_KIND = 'character-poser-pose';
 
@@ -34,7 +35,7 @@ export interface ControlTransformDocument {
 
 export interface PoseDocument {
   kind: typeof POSE_KIND;
-  version: typeof DOCUMENT_VERSION;
+  version: typeof POSE_DOCUMENT_VERSION;
   id: string;
   name: string;
   scope: ControlView;
@@ -62,30 +63,35 @@ export interface SceneCharacterDocument {
   controls: Partial<Record<JointId, ControlTransformDocument>>;
 }
 
-export interface SceneDocument {
-  kind: typeof SCENE_KIND;
-  version: typeof DOCUMENT_VERSION;
+export interface ShotDocument {
   id: string;
-  name: string;
-  /** Any number of characters, each with its own model and pose. */
   characters: SceneCharacterDocument[];
-  /** The character whose detail controls were showing; one of characters[].id. */
   activeCharacterId?: string;
-  /** Scene lights; absent in scenes saved before lighting was editable (defaults apply). */
   lighting?: LightingSettings;
-  /** The bookmarked main view, if one was set. */
   mainCamera?: CameraPose;
   cameras: [SceneCameraDocument];
   activeCameraId: string;
   activeView: ControlView;
+}
+
+export interface SceneDocument {
+  kind: typeof SCENE_KIND;
+  version: typeof SCENE_DOCUMENT_VERSION;
+  id: string;
+  name: string;
+  shots: ShotDocument[];
+  activeShotId: string;
   createdAt: string;
   updatedAt: string;
+  /** Runtime-only marker; omitted when the migrated document is saved. */
+  migratedFromVersion?: 1;
 }
 
 const JOINT_IDS = new Set<string>(CONTROL_JOINTS);
 const LEGACY_BODY_CONTROL_JOINTS = BODY_CONTROL_JOINTS.filter((id) => !isLegRootControlJoint(id));
 const LEGACY_CONTROL_JOINTS = CONTROL_JOINTS.filter((id) => !isLegRootControlJoint(id));
 const CONTROL_VIEWS = new Set<string>(['body', 'leftHand', 'rightHand', 'face']);
+const DOCUMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const DETAIL_ANCHORS: Record<Exclude<ControlView, 'body'>, JointId> = {
   leftHand: 'LeftHand',
   rightHand: 'RightHand',
@@ -104,6 +110,12 @@ function requireRecord(value: unknown, path: string): Record<string, unknown> {
 function requireString(value: unknown, path: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${path} must be a non-empty string`);
   return value;
+}
+
+function requireDocumentId(value: unknown, path: string): string {
+  const id = requireString(value, path);
+  if (!DOCUMENT_ID_PATTERN.test(id)) throw new Error(`${path} must match ${DOCUMENT_ID_PATTERN}`);
+  return id;
 }
 
 function requireTimestamp(value: unknown, path: string): string {
@@ -170,7 +182,7 @@ function parseCamera(value: unknown, path: string): SceneCameraDocument {
   const fov = requireNumber(record.fov, `${path}.fov`);
   if (fov <= 0 || fov >= 180) throw new Error(`${path}.fov must be between 0 and 180`);
   return {
-    id: requireString(record.id, `${path}.id`),
+    id: requireDocumentId(record.id, `${path}.id`),
     position: requireTuple(record.position, 3, `${path}.position`),
     target: requireTuple(record.target, 3, `${path}.target`),
     fov,
@@ -181,8 +193,10 @@ function parseCamera(value: unknown, path: string): SceneCameraDocument {
 export function parsePoseDocument(value: unknown): PoseDocument {
   const record = requireRecord(value, 'pose');
   if (record.kind !== POSE_KIND) throw new Error(`pose.kind must be "${POSE_KIND}"`);
-  if (record.version !== DOCUMENT_VERSION) {
-    throw new Error(`Unsupported pose version "${String(record.version)}"; expected ${DOCUMENT_VERSION}`);
+  if (record.version !== POSE_DOCUMENT_VERSION) {
+    throw new Error(
+      `Unsupported pose version "${String(record.version)}"; expected ${POSE_DOCUMENT_VERSION}`,
+    );
   }
   const scope = parseView(record.scope, 'pose.scope');
   const requiredIds = scope === 'body' ? LEGACY_BODY_CONTROL_JOINTS : CONTROL_JOINTS_BY_VIEW[scope].slice(1);
@@ -193,7 +207,7 @@ export function parsePoseDocument(value: unknown): PoseDocument {
   if (anchor && record.anchor !== anchor) throw new Error(`pose.anchor must be "${anchor}"`);
   return {
     kind: POSE_KIND,
-    version: DOCUMENT_VERSION,
+    version: POSE_DOCUMENT_VERSION,
     id: requireString(record.id, 'pose.id'),
     name: requireString(record.name, 'pose.name'),
     scope,
@@ -266,41 +280,83 @@ function parseSceneCharacter(value: unknown, path: string): SceneCharacterDocume
   };
 }
 
-export function parseSceneDocument(value: unknown): SceneDocument {
-  const record = requireRecord(value, 'scene');
-  if (record.kind !== SCENE_KIND) throw new Error(`scene.kind must be "${SCENE_KIND}"`);
-  if (record.version !== DOCUMENT_VERSION) {
-    throw new Error(`Unsupported scene version "${String(record.version)}"; expected ${DOCUMENT_VERSION}`);
-  }
-  if (!Array.isArray(record.characters)) throw new Error('scene.characters must be an array');
-  const characters = record.characters.map((value, index) => parseSceneCharacter(value, `scene.characters[${index}]`));
+function parseShot(value: unknown, path: string): ShotDocument {
+  const record = requireRecord(value, path);
+  if (!Array.isArray(record.characters)) throw new Error(`${path}.characters must be an array`);
+  const characters = record.characters.map(
+    (value, index) => parseSceneCharacter(value, `${path}.characters[${index}]`),
+  );
   const ids = new Set(characters.map((character) => character.id));
-  if (ids.size !== characters.length) throw new Error('scene.characters must have unique ids');
+  if (ids.size !== characters.length) throw new Error(`${path}.characters must have unique ids`);
   let activeCharacterId: string | undefined;
   if (record.activeCharacterId !== undefined) {
-    activeCharacterId = requireString(record.activeCharacterId, 'scene.activeCharacterId');
-    if (!ids.has(activeCharacterId)) throw new Error('scene.activeCharacterId does not reference a character');
+    activeCharacterId = requireString(record.activeCharacterId, `${path}.activeCharacterId`);
+    if (!ids.has(activeCharacterId)) throw new Error(`${path}.activeCharacterId does not reference a character`);
   }
-  const lighting = record.lighting === undefined ? undefined : parseLighting(record.lighting, 'scene.lighting');
-  const mainCamera = record.mainCamera === undefined ? undefined : parseCameraPose(record.mainCamera, 'scene.mainCamera');
+  const lighting = record.lighting === undefined ? undefined : parseLighting(record.lighting, `${path}.lighting`);
+  const mainCamera = record.mainCamera === undefined
+    ? undefined
+    : parseCameraPose(record.mainCamera, `${path}.mainCamera`);
   if (!Array.isArray(record.cameras) || record.cameras.length !== 1) {
-    throw new Error('scene.cameras must contain exactly one camera in this version');
+    throw new Error(`${path}.cameras must contain exactly one camera in this version`);
   }
-  const camera = parseCamera(record.cameras[0], 'scene.cameras[0]');
-  const activeCameraId = requireString(record.activeCameraId, 'scene.activeCameraId');
-  if (activeCameraId !== camera.id) throw new Error('scene.activeCameraId does not reference its camera');
+  const camera = parseCamera(record.cameras[0], `${path}.cameras[0]`);
+  const activeCameraId = requireString(record.activeCameraId, `${path}.activeCameraId`);
+  if (activeCameraId !== camera.id) throw new Error(`${path}.activeCameraId does not reference its camera`);
   return {
-    kind: SCENE_KIND,
-    version: DOCUMENT_VERSION,
-    id: requireString(record.id, 'scene.id'),
-    name: requireString(record.name, 'scene.name'),
+    id: requireDocumentId(record.id, `${path}.id`),
     characters,
     ...(activeCharacterId !== undefined ? { activeCharacterId } : {}),
     ...(lighting !== undefined ? { lighting } : {}),
     ...(mainCamera !== undefined ? { mainCamera } : {}),
     cameras: [camera],
     activeCameraId,
-    activeView: parseView(record.activeView, 'scene.activeView'),
+    activeView: parseView(record.activeView, `${path}.activeView`),
+  };
+}
+
+export function parseSceneDocument(value: unknown): SceneDocument {
+  const record = requireRecord(value, 'scene');
+  if (record.kind !== SCENE_KIND) throw new Error(`scene.kind must be "${SCENE_KIND}"`);
+  const id = requireString(record.id, 'scene.id');
+  const name = requireString(record.name, 'scene.name');
+  const createdAt = requireTimestamp(record.createdAt, 'scene.createdAt');
+  const updatedAt = requireTimestamp(record.updatedAt, 'scene.updatedAt');
+
+  if (record.version === 1) {
+    const shot = parseShot({ ...record, id: `shot-${id}`.slice(0, 64) }, 'scene.shots[0]');
+    return {
+      kind: SCENE_KIND,
+      version: SCENE_DOCUMENT_VERSION,
+      id,
+      name,
+      shots: [shot],
+      activeShotId: shot.id,
+      createdAt,
+      updatedAt,
+      migratedFromVersion: 1,
+    };
+  }
+  if (record.version !== SCENE_DOCUMENT_VERSION) {
+    throw new Error(
+      `Unsupported scene version "${String(record.version)}"; expected 1 or ${SCENE_DOCUMENT_VERSION}`,
+    );
+  }
+  if (!Array.isArray(record.shots) || record.shots.length === 0) {
+    throw new Error('scene.shots must contain at least one shot');
+  }
+  const shots = record.shots.map((shot, index) => parseShot(shot, `scene.shots[${index}]`));
+  const shotIds = new Set(shots.map((shot) => shot.id));
+  if (shotIds.size !== shots.length) throw new Error('scene.shots must have unique ids');
+  const activeShotId = requireString(record.activeShotId, 'scene.activeShotId');
+  if (!shotIds.has(activeShotId)) throw new Error('scene.activeShotId does not reference a shot');
+  return {
+    kind: SCENE_KIND,
+    version: SCENE_DOCUMENT_VERSION,
+    id,
+    name,
+    shots,
+    activeShotId,
     createdAt: requireTimestamp(record.createdAt, 'scene.createdAt'),
     updatedAt: requireTimestamp(record.updatedAt, 'scene.updatedAt'),
   };
@@ -390,7 +446,7 @@ export function createPoseDocument(
     }
     return {
       kind: POSE_KIND,
-      version: DOCUMENT_VERSION,
+      version: POSE_DOCUMENT_VERSION,
       id,
       name,
       scope,
@@ -404,7 +460,7 @@ export function createPoseDocument(
   const anchor = DETAIL_ANCHORS[scope];
   return {
     kind: POSE_KIND,
-    version: DOCUMENT_VERSION,
+    version: POSE_DOCUMENT_VERSION,
     id,
     name,
     scope,

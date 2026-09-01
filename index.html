@@ -118,11 +118,17 @@
           <p id="persistence-status" class="status" role="status"></p>
         </div>
       </aside>
-      <main id="viewport-area">
-        <canvas id="scene-canvas"></canvas>
-        <div id="main-view-frame" hidden><svg aria-hidden="true"><rect /></svg></div>
-        <div id="render-status" hidden></div>
-      </main>
+      <div id="workspace">
+        <main id="viewport-area">
+          <canvas id="scene-canvas"></canvas>
+          <div id="main-view-frame" hidden><svg aria-hidden="true"><rect /></svg></div>
+          <div id="render-status" hidden></div>
+        </main>
+        <section id="shot-tray" aria-label="Shots" hidden>
+          <div id="shot-list"></div>
+          <button id="btn-add-shot" type="button" title="Add blank shot" aria-label="Add blank shot">+</button>
+        </section>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

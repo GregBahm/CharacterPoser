@@ -9,9 +9,12 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const dataRoot = path.resolve(process.env.CHARACTER_POSER_DATA_DIR ?? path.join(root, 'data'));
 const poseRoot = path.join(dataRoot, 'poses');
 const sessionRoot = path.join(dataRoot, 'sessions');
+const thumbnailRoot = path.join(dataRoot, 'shot-thumbnails');
 const host = '127.0.0.1';
 const port = Number(process.env.PORT ?? 5173);
-const MAX_BODY_BYTES = 1024 * 1024;
+// Storyboards can contain many complete scene snapshots.
+const MAX_BODY_BYTES = 16 * 1024 * 1024;
+const MAX_THUMBNAIL_BYTES = 200 * 1024;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const POSE_SCOPES = new Set(['body', 'leftHand', 'rightHand', 'face']);
 const allowedHosts = new Set([`${host}:${port}`, `localhost:${port}`]);
@@ -19,6 +22,7 @@ const allowedHosts = new Set([`${host}:${port}`, `localhost:${port}`]);
 await Promise.all([
   ...[...POSE_SCOPES].map((scope) => mkdir(path.join(poseRoot, scope), { recursive: true })),
   mkdir(sessionRoot, { recursive: true }),
+  mkdir(thumbnailRoot, { recursive: true }),
 ]);
 
 function sendJson(response, status, value) {
@@ -88,10 +92,51 @@ async function readJsonBody(request) {
   }
 }
 
+async function readBinaryBody(request, maxBytes) {
+  const declaredLength = Number(request.headers['content-length'] ?? 0);
+  if (declaredLength > maxBytes) {
+    const error = new Error(`Request body exceeds ${maxBytes} bytes`);
+    error.status = 413;
+    throw error;
+  }
+  const chunks = [];
+  let length = 0;
+  for await (const chunk of request) {
+    length += chunk.length;
+    if (length > maxBytes) {
+      const error = new Error(`Request body exceeds ${maxBytes} bytes`);
+      error.status = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 async function writeJsonAtomic(filePath, value) {
   const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await rename(temporaryPath, filePath);
+        break;
+      } catch (cause) {
+        const retryable = cause && typeof cause === 'object' &&
+          (cause.code === 'EPERM' || cause.code === 'EBUSY' || cause.code === 'EACCES');
+        if (!retryable || attempt === 2) throw cause;
+        await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
+      }
+    }
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
+}
+
+async function writeBinaryAtomic(filePath, value) {
+  const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, value, { flag: 'wx' });
     for (let attempt = 0; ; attempt++) {
       try {
         await rename(temporaryPath, filePath);
@@ -224,6 +269,98 @@ async function handleApi(request, response, url) {
         throw error;
       }
       await writeJsonAtomic(filePath, value);
+      sendJson(response, 200, { ok: true });
+      return true;
+    }
+    sendJson(response, 405, { error: 'Method not allowed' });
+    return true;
+  }
+
+  const activeShotMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/active-shot$/);
+  if (activeShotMatch) {
+    if (request.method !== 'PUT') {
+      sendJson(response, 405, { error: 'Method not allowed' });
+      return true;
+    }
+    const id = requireId(decodePathSegment(activeShotMatch[1]), 'session id');
+    const filePath = path.join(sessionRoot, `${id}.json`);
+    const update = await readJsonBody(request);
+    const document = await readStoredJson(filePath);
+    if (
+      document.kind !== 'character-poser-scene' ||
+      document.version !== 2 ||
+      !Array.isArray(document.shots) ||
+      !update.shot ||
+      typeof update.shot !== 'object' ||
+      typeof update.activeShotId !== 'string' ||
+      update.shot.id !== update.activeShotId ||
+      !Array.isArray(update.shot.characters) ||
+      !Array.isArray(update.shot.cameras) ||
+      update.shot.cameras.length !== 1 ||
+      typeof update.shot.activeCameraId !== 'string' ||
+      !POSE_SCOPES.has(update.shot.activeView)
+    ) {
+      const error = new Error('Active-shot update does not match a version 2 session');
+      error.status = 400;
+      throw error;
+    }
+    const index = document.shots.findIndex((shot) => shot && shot.id === update.activeShotId);
+    if (index < 0) {
+      const error = new Error('Active shot was not found in the session');
+      error.status = 404;
+      throw error;
+    }
+    document.shots[index] = update.shot;
+    document.activeShotId = update.activeShotId;
+    if (typeof update.updatedAt === 'string') document.updatedAt = update.updatedAt;
+    await writeJsonAtomic(filePath, document);
+    sendJson(response, 200, { ok: true });
+    return true;
+  }
+
+  const thumbnailMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/shots\/([^/]+)\/thumbnail$/);
+  if (thumbnailMatch) {
+    const sessionId = requireId(decodePathSegment(thumbnailMatch[1]), 'session id');
+    const shotId = requireId(decodePathSegment(thumbnailMatch[2]), 'shot id');
+    const directory = path.join(thumbnailRoot, sessionId);
+    const filePath = path.join(directory, `${shotId}.jpg`);
+    if (request.method === 'GET') {
+      try {
+        const body = await readFile(filePath);
+        response.writeHead(200, {
+          'Content-Type': 'image/jpeg',
+          'Content-Length': body.length,
+          'Cache-Control': 'public, max-age=31536000, immutable',
+        });
+        response.end(body);
+      } catch (cause) {
+        if (cause && typeof cause === 'object' && cause.code === 'ENOENT') {
+          sendJson(response, 404, { error: 'Shot thumbnail not found' });
+        } else {
+          throw cause;
+        }
+      }
+      return true;
+    }
+    if (request.method === 'PUT') {
+      if (request.headers['content-type'] !== 'image/jpeg') {
+        const error = new Error('Shot thumbnail must be image/jpeg');
+        error.status = 415;
+        throw error;
+      }
+      const body = await readBinaryBody(request, MAX_THUMBNAIL_BYTES);
+      if (body.length < 3 || body[0] !== 0xff || body[1] !== 0xd8 || body[2] !== 0xff) {
+        const error = new Error('Shot thumbnail is not a JPEG');
+        error.status = 400;
+        throw error;
+      }
+      await mkdir(directory, { recursive: true });
+      await writeBinaryAtomic(filePath, body);
+      sendJson(response, 200, { ok: true });
+      return true;
+    }
+    if (request.method === 'DELETE') {
+      await rm(filePath, { force: true });
       sendJson(response, 200, { ok: true });
       return true;
     }

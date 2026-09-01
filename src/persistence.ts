@@ -1,5 +1,11 @@
 import { ControlView } from './pose.ts';
-import { parsePoseDocument, parseSceneDocument, PoseDocument, SceneDocument } from './documents.ts';
+import {
+  parsePoseDocument,
+  parseSceneDocument,
+  PoseDocument,
+  SceneDocument,
+  ShotDocument,
+} from './documents.ts';
 
 export interface StoredDocumentSummary {
   id: string;
@@ -85,11 +91,37 @@ export class PersistenceClient {
     await requestJson(`/api/sessions/${encodeURIComponent(document.id)}`, jsonRequest(document));
   }
 
-  saveSessionOnUnload(document: SceneDocument) {
-    void fetch(`/api/sessions/${encodeURIComponent(document.id)}`, {
-      ...jsonRequest(document),
+  shotThumbnailUrl(sessionId: string, shotId: string, version: string): string {
+    return `/api/sessions/${encodeURIComponent(sessionId)}/shots/${encodeURIComponent(shotId)}/thumbnail?v=${encodeURIComponent(version)}`;
+  }
+
+  async saveShotThumbnail(sessionId: string, shotId: string, dataUrl: string): Promise<void> {
+    const image = await fetch(dataUrl).then((response) => response.blob());
+    await requestJson(
+      `/api/sessions/${encodeURIComponent(sessionId)}/shots/${encodeURIComponent(shotId)}/thumbnail`,
+      { method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, body: image },
+    );
+  }
+
+  async deleteShotThumbnail(sessionId: string, shotId: string): Promise<void> {
+    await requestJson(
+      `/api/sessions/${encodeURIComponent(sessionId)}/shots/${encodeURIComponent(shotId)}/thumbnail`,
+      { method: 'DELETE' },
+    );
+  }
+
+  saveActiveShotOnUnload(
+    sessionId: string,
+    activeShotId: string,
+    shot: ShotDocument,
+    updatedAt: string,
+  ) {
+    void fetch(`/api/sessions/${encodeURIComponent(sessionId)}/active-shot`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activeShotId, shot, updatedAt }),
       keepalive: true,
-    });
+    }).catch(() => {});
   }
 }
 
@@ -102,5 +134,6 @@ export function createDocumentId(name: string): string {
     .replace(/[-\s]+/g, '-')
     .slice(0, 40)
     .replace(/^-+|-+$/g, '');
-  return `${slug || 'untitled'}-${Date.now().toString(36)}`;
+  const random = crypto.getRandomValues(new Uint32Array(1))[0].toString(36);
+  return `${slug || 'untitled'}-${Date.now().toString(36)}-${random}`;
 }

@@ -47,13 +47,18 @@ grid.position.y = 0.001;
 scene.add(grid);
 
 function resize() {
-  const w = viewportArea.clientWidth;
-  const h = viewportArea.clientHeight;
+  const w = Math.max(1, viewportArea.clientWidth);
+  const h = Math.max(1, viewportArea.clientHeight);
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
-window.addEventListener('resize', resize);
+let resizeRenderBuffers = () => {};
+const viewportResizeObserver = new ResizeObserver(() => {
+  resize();
+  resizeRenderBuffers();
+});
+viewportResizeObserver.observe(viewportArea);
 resize();
 
 async function init() {
@@ -68,7 +73,8 @@ async function init() {
     status: document.getElementById('render-status'),
   });
   bindRenderModeButtons(sceneRenderer);
-  window.addEventListener('resize', () => sceneRenderer.setSize(viewportArea.clientWidth, viewportArea.clientHeight));
+  resizeRenderBuffers = () => sceneRenderer.setSize(viewportArea.clientWidth, viewportArea.clientHeight);
+  resizeRenderBuffers();
 
   // Control points and widgets draw on top of every mode and are never path traced.
   const characters = new CharacterScene(state, {
@@ -200,6 +206,7 @@ async function init() {
       width: Math.max(1, Math.round(viewportArea.clientWidth)),
       height: Math.max(1, Math.round(viewportArea.clientHeight)),
     }),
+    captureThumbnail: () => sceneRenderer.captureThumbnail(),
     loadCharacters,
     lighting: () => lighting.settings,
     setLighting,

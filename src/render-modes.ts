@@ -169,6 +169,40 @@ export class SceneRenderer {
     this.insets?.(this.renderer);
   }
 
+  /** Capture a small clean scene preview without control overlays or inset views. */
+  captureThumbnail(width = 192, height = 108): string {
+    const source = this.renderer.domElement;
+    const size = this.renderer.getSize(new THREE.Vector2());
+    this.renderer.setRenderTarget(null);
+    this.renderer.setScissorTest(false);
+    this.renderer.setViewport(0, 0, size.x, size.y);
+    this.renderer.autoClear = true;
+    this.renderer.shadowMap.needsUpdate = true;
+    this.renderer.render(this.scene, this.camera);
+
+    const thumbnail = document.createElement('canvas');
+    thumbnail.width = width;
+    thumbnail.height = height;
+    const context = thumbnail.getContext('2d');
+    if (!context) throw new Error('Could not create the shot thumbnail canvas');
+
+    const sourceAspect = source.width / source.height;
+    const targetAspect = width / height;
+    let sx = 0;
+    let sy = 0;
+    let sw = source.width;
+    let sh = source.height;
+    if (sourceAspect > targetAspect) {
+      sw = source.height * targetAspect;
+      sx = (source.width - sw) / 2;
+    } else {
+      sh = source.width / targetAspect;
+      sy = (source.height - sh) / 2;
+    }
+    context.drawImage(source, sx, sy, sw, sh, 0, 0, width, height);
+    return thumbnail.toDataURL('image/jpeg', 0.76);
+  }
+
   private emit() {
     for (const fn of this.listeners) fn();
   }
