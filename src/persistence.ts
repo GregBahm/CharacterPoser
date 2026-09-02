@@ -95,6 +95,10 @@ export class PersistenceClient {
     return `/api/sessions/${encodeURIComponent(sessionId)}/shots/${encodeURIComponent(shotId)}/thumbnail?v=${encodeURIComponent(version)}`;
   }
 
+  shotReferenceImageUrl(sessionId: string, shotId: string, version: string): string {
+    return `/api/sessions/${encodeURIComponent(sessionId)}/shots/${encodeURIComponent(shotId)}/reference-image?v=${encodeURIComponent(version)}`;
+  }
+
   async saveShotThumbnail(sessionId: string, shotId: string, dataUrl: string): Promise<void> {
     const image = await fetch(dataUrl).then((response) => response.blob());
     await requestJson(
@@ -106,6 +110,31 @@ export class PersistenceClient {
   async deleteShotThumbnail(sessionId: string, shotId: string): Promise<void> {
     await requestJson(
       `/api/sessions/${encodeURIComponent(sessionId)}/shots/${encodeURIComponent(shotId)}/thumbnail`,
+      { method: 'DELETE' },
+    );
+  }
+
+  async saveShotReferenceImage(sessionId: string, shotId: string, image: Blob): Promise<void> {
+    await requestJson(
+      `/api/sessions/${encodeURIComponent(sessionId)}/shots/${encodeURIComponent(shotId)}/reference-image`,
+      { method: 'PUT', headers: { 'Content-Type': image.type }, body: image },
+    );
+  }
+
+  async copyShotReferenceImage(
+    sessionId: string,
+    sourceShotId: string,
+    targetShotId: string,
+    version: string,
+  ): Promise<void> {
+    const response = await fetch(this.shotReferenceImageUrl(sessionId, sourceShotId, version));
+    if (!response.ok) throw new Error(`Could not read reference image: ${response.status} ${response.statusText}`);
+    await this.saveShotReferenceImage(sessionId, targetShotId, await response.blob());
+  }
+
+  async deleteShotReferenceImage(sessionId: string, shotId: string): Promise<void> {
+    await requestJson(
+      `/api/sessions/${encodeURIComponent(sessionId)}/shots/${encodeURIComponent(shotId)}/reference-image`,
       { method: 'DELETE' },
     );
   }

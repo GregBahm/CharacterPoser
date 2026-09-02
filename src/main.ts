@@ -11,6 +11,7 @@ import { PopupViews } from './popup-views.ts';
 import { AppState } from './state.ts';
 import { UI } from './ui.ts';
 import { PersistenceController } from './persistence-controller.ts';
+import { ReferenceImageOverlay } from './reference-image.ts';
 import { bindRenderModeButtons, SceneRenderer } from './render-modes.ts';
 import { CharacterScene } from './scene.ts';
 
@@ -171,6 +172,7 @@ async function init() {
   // The bookmarked main view; edits autosave with the scene.
   const bookmark = new CameraBookmark(camera, cameraTarget, () => persistence?.notifySceneChanged());
   const cameraPanel = new CameraPanel(bookmark);
+  const referenceImage = new ReferenceImageOverlay();
 
   const resetScene = async () => {
     characters.clear();
@@ -212,6 +214,8 @@ async function init() {
     setLighting,
     mainCamera: () => bookmark.main,
     setMainCamera: (pose) => bookmark.load(pose),
+    setReferenceImage: (source, opacity) => referenceImage.set(source, opacity),
+    setReferenceOpacity: (opacity) => referenceImage.setOpacity(opacity),
     applyPose: () => interaction.applyPose(),
     applyPoseEdit: (edit) => interaction.performPoseEdit(edit),
     clearPoseHistory: () => interaction.clearPoseHistory(),
@@ -330,6 +334,7 @@ async function init() {
     interaction.update();
     camera.lookAt(cameraTarget);
     cameraPanel.update();
+    referenceImage.update(bookmark.main === null || bookmark.isAtMain());
     lighting.fitShadows(characters.bounds());
     sceneRenderer.render();
   });

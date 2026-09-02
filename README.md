@@ -33,6 +33,11 @@ launching to keep them elsewhere for backup or transfer to another computer.
   thumbnail is captured when you leave it. Drag shots to reorder them with live animated spacing,
   use the hover actions to duplicate or delete a shot, or use **+** to add a new shot containing
   the default character in its base pose. A session always keeps at least one shot.
+- Drag a JPEG, PNG, GIF, or WebP file onto any shot to use it as that shot's reference image.
+  The selected shot exposes an opacity slider along the bottom of its card. The reference scales
+  to fit the viewport while no main camera is set or while the camera is at the saved main view;
+  moving away from that view hides the viewport overlay without removing it from the shot card.
+  Original image files are copied under `data/reference-images/<session-id>/`.
 - Use **New** to start a reset session or select a saved session and choose **Load**.
 - The pose library saves the currently active control scope. Full-body poses preserve the
   character's current hand and facial details when loaded. Hand and face poses are stored
@@ -53,9 +58,11 @@ any number of characters, each keeping its model for life:
   controls, and the pose library saves/loads the active character.
 - The characters, their poses, and which one is active are saved with each shot. Adding or
   removing a character clears pose history.
-- The FBX files in `public/` are the `SourceArt/` originals with their embedded 8K diffuse textures
-  shrunk to 2K by `tools/shrink-textures.ps1` (which drives `tools/fbx-texture.mjs`, a binary-FBX
-  texture swapper); re-run it after replacing a source file.
+- The FBX files in `public/` reference editable lossless 2K diffuse PNGs colocated beside them; they no
+  longer contain embedded image payloads. Each character uses a matching lowercase pair such as
+  `carla.fbx` and `carla.png`.
+  `tools/shrink-textures.ps1` rebuilds this layout from the 8K `SourceArt/` originals by driving
+  `tools/fbx-texture.mjs`; re-run it after replacing a source file.
 
 ## Interaction
 
@@ -126,7 +133,7 @@ to it.**
 - `src/models.ts`, `src/character.ts`, `src/scene.ts` — the bundled model list, one posable
   character (rig + pose graph + control points), and the `CharacterScene` that adds/removes them
   and tracks the active one.
-- `src/rig.ts` — FBX loading (keeping the embedded diffuse texture), Renderpeople bone mapping
+- `src/rig.ts` — FBX loading (including the external diffuse texture), Renderpeople bone mapping
   (auto-oriented from the file's Z-up or Y-up axes), and fitting bones to a solved skeleton.
   Stateless per call: each bone's orientation = aim-correction × rotation-delta × bind, and each
   segment bone is scaled along its child axis by solvedLength / bindLength (plain axial stretch,
@@ -138,7 +145,7 @@ to it.**
 - `src/popup-views.ts` — the Side/Top inset views: capture, layout, cameras, and drawing them into
   the main canvas with scissored viewports after the frame.
 - `src/render-modes.ts` — the three render modes. Untextured (clay) and Textured are Lambert
-  shading without/with the models' embedded diffuse textures, optionally with N8AO screen-space
+  shading without/with the models' external diffuse textures, optionally with N8AO screen-space
   ambient occlusion (neural denoise, accumulating over frames while the view is still); Path Traced runs `three-gpu-pathtracer` progressively with the textures,
   pausing on pose/camera/light changes and rebuilding or relighting once they settle.
 - `src/lighting.ts`, `src/lighting-ui.ts` — the scene's lighting (ambient color/intensity plus
