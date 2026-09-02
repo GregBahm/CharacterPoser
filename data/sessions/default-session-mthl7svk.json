@@ -1,0 +1,65 @@
+{
+  "kind": "character-poser-scene",
+  "version": 2,
+  "id": "default-session-mthl7svk",
+  "name": "Default Session",
+  "shots": [
+    {
+      "id": "shot-default-session-mthl7svk",
+      "characters": [],
+      "lighting": {
+        "ambient": {
+          "color": "#cfd8e6",
+          "intensity": 1.1
+        },
+        "lights": [
+          {
+            "color": "#ffffff",
+            "intensity": 2.2,
+            "azimuth": 37,
+            "elevation": 50,
+            "softness": 2
+          }
+        ]
+      },
+      "mainCamera": {
+        "position": [
+          0.1977140705834597,
+          2.5979284568156498,
+          3.858139570766005
+        ],
+        "target": [
+          0,
+          0.95,
+          7.395570986446986e-32
+        ],
+        "fov": 40
+      },
+      "cameras": [
+        {
+          "id": "free",
+          "position": [
+            0.1977140705834597,
+            2.5979284568156498,
+            3.858139570766005
+          ],
+          "target": [
+            0,
+            0.95,
+            7.395570986446986e-32
+          ],
+          "fov": 40,
+          "resolution": {
+            "width": 1812,
+            "height": 1062
+          }
+        }
+      ],
+      "activeCameraId": "free",
+      "activeView": "body"
+    }
+  ],
+  "activeShotId": "shot-default-session-mthl7svk",
+  "createdAt": "2026-08-31T18:44:18.800Z",
+  "updatedAt": "2026-09-02T00:11:37.384Z"
+}
