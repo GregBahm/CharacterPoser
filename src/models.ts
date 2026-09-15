@@ -4,12 +4,14 @@ export interface CharacterModel {
   label: string;
   /** Served path of the FBX file; also the model reference stored in scenes. */
   url: string;
+  /** Previous URLs accepted when loading older scene documents. */
+  legacyUrls?: readonly string[];
 }
 
 export const CHARACTER_MODELS: readonly CharacterModel[] = [
-  { label: 'Carla', url: '/rp_carla_rigged_001_zup_a.fbx' },
-  { label: 'Claudia', url: '/rp_claudia_rigged_002_yup_a.fbx' },
-  { label: 'Eric', url: '/rp_eric_rigged_001_yup_a.fbx' },
+  { label: 'Carla', url: '/carla.fbx', legacyUrls: ['/rp_carla_rigged_001_zup_a.fbx'] },
+  { label: 'Claudia', url: '/claudia.fbx', legacyUrls: ['/rp_claudia_rigged_002_yup_a.fbx'] },
+  { label: 'Eric', url: '/eric.fbx', legacyUrls: ['/rp_eric_rigged_001_yup_a.fbx'] },
   { label: 'Ruth', url: '/ruth.fbx' },
   { label: 'Scooter', url: '/scooter.fbx' },
 ];
@@ -17,5 +19,5 @@ export const CHARACTER_MODELS: readonly CharacterModel[] = [
 export const DEFAULT_CHARACTER_MODEL = CHARACTER_MODELS[0];
 
 export function findCharacterModel(url: string): CharacterModel | undefined {
-  return CHARACTER_MODELS.find((model) => model.url === url);
+  return CHARACTER_MODELS.find((model) => model.url === url || model.legacyUrls?.includes(url));
 }

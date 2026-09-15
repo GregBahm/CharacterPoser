@@ -63,12 +63,17 @@ export interface SceneCharacterDocument {
   controls: Partial<Record<JointId, ControlTransformDocument>>;
 }
 
+export interface ReferenceImageDocument {
+  opacity: number;
+}
+
 export interface ShotDocument {
   id: string;
   characters: SceneCharacterDocument[];
   activeCharacterId?: string;
   lighting?: LightingSettings;
   mainCamera?: CameraPose;
+  referenceImage?: ReferenceImageDocument;
   cameras: [SceneCameraDocument];
   activeCameraId: string;
   activeView: ControlView;
@@ -297,6 +302,9 @@ function parseShot(value: unknown, path: string): ShotDocument {
   const mainCamera = record.mainCamera === undefined
     ? undefined
     : parseCameraPose(record.mainCamera, `${path}.mainCamera`);
+  const referenceImage = record.referenceImage === undefined
+    ? undefined
+    : parseReferenceImage(record.referenceImage, `${path}.referenceImage`);
   if (!Array.isArray(record.cameras) || record.cameras.length !== 1) {
     throw new Error(`${path}.cameras must contain exactly one camera in this version`);
   }
@@ -309,10 +317,18 @@ function parseShot(value: unknown, path: string): ShotDocument {
     ...(activeCharacterId !== undefined ? { activeCharacterId } : {}),
     ...(lighting !== undefined ? { lighting } : {}),
     ...(mainCamera !== undefined ? { mainCamera } : {}),
+    ...(referenceImage !== undefined ? { referenceImage } : {}),
     cameras: [camera],
     activeCameraId,
     activeView: parseView(record.activeView, `${path}.activeView`),
   };
+}
+
+function parseReferenceImage(value: unknown, path: string): ReferenceImageDocument {
+  const record = requireRecord(value, path);
+  const opacity = requireNumber(record.opacity, `${path}.opacity`);
+  if (opacity < 0 || opacity > 1) throw new Error(`${path}.opacity must be between 0 and 1`);
+  return { opacity };
 }
 
 export function parseSceneDocument(value: unknown): SceneDocument {

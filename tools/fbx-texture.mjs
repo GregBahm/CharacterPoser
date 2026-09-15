@@ -1,10 +1,13 @@
 #!/usr/bin/env node
-// Extract or replace the textures embedded in a binary FBX 7.0–7.4 file
-// (the Content blob of its Video objects). Used to shrink the 8K diffuse
-// maps the Renderpeople models ship with; see tools/shrink-textures.ps1.
+// Extract, replace, or externalize textures in a binary FBX 7.0–7.4 file
+// (the Content blob of its Video objects). Used to prepare the Renderpeople
+// models; see tools/shrink-textures.ps1.
 //
 //   node tools/fbx-texture.mjs extract <in.fbx> <out.jpg>
 //   node tools/fbx-texture.mjs replace <in.fbx> <texture.jpg> <out.fbx>
+//   node tools/fbx-texture.mjs externalize <in.fbx> <out.fbx> <texture-dir> <url-prefix> [texture.jpg] [output-name]
+//   node tools/fbx-texture.mjs relink <in.fbx> <out.fbx> <url-prefix> [texture-name]
+//   node tools/fbx-texture.mjs inspect <in.fbx>
 //   node tools/fbx-texture.mjs roundtrip <in.fbx>        (self-test: re-serialize and compare)
 //
 // Binary FBX is a tree of records: [endOffset u32][numProps u32][propsLen u32]
@@ -13,7 +16,8 @@
 // record after it, so the file is parsed to a tree and written back out with
 // fresh offsets. Property lists are kept as raw bytes except where edited.
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 
 const MAGIC = 'Kaydara FBX Binary  \0\x1a\0';
 const HEADER_SIZE = 27;
@@ -132,6 +136,11 @@ function findVideos(tree) {
   return (objects?.children ?? []).filter((node) => node.name === 'Video');
 }
 
+function findTextures(tree) {
+  const objects = tree.nodes.find((node) => node.name === 'Objects');
+  return (objects?.children ?? []).filter((node) => node.name === 'Texture');
+}
+
 /**
  * A Video record's embedded image lives in its child record "Content" as a
  * single raw-binary property. Returns that record and the property's span.
@@ -154,6 +163,12 @@ function fileName(video) {
   return '?';
 }
 
+function stringChild(node, name) {
+  const child = node.children.find((candidate) => candidate.name === name);
+  const prop = child && [...properties(child.props)].find((candidate) => candidate.type === 'S');
+  return prop ? child.props.toString('latin1', prop.start + 5, prop.end) : null;
+}
+
 function replaceContent(node, span, data) {
   node.props = Buffer.concat([
     node.props.subarray(0, span.start),
@@ -164,9 +179,56 @@ function replaceContent(node, span, data) {
   ]);
 }
 
+function replaceProperty(node, span, type, data) {
+  node.props = Buffer.concat([
+    node.props.subarray(0, span.start),
+    Buffer.from(type, 'latin1'),
+    u32(data.length),
+    data,
+    node.props.subarray(span.end),
+  ]);
+}
+
+function setStringChild(video, name, value) {
+  const node = video.children.find((child) => child.name === name);
+  const span = node && [...properties(node.props)].find((prop) => prop.type === 'S');
+  if (!node || !span) return;
+  replaceProperty(node, span, 'S', Buffer.from(value, 'utf8'));
+}
+
+function baseName(value) {
+  return value.replaceAll('\\', '/').split('/').pop();
+}
+
+function baseFileName(video) {
+  return baseName(fileName(video));
+}
+
+function relativeTextureUrl(urlPrefix, name) {
+  const prefix = urlPrefix === '.' ? '' : urlPrefix.replace(/\/+$/, '');
+  return [prefix, name].filter(Boolean).join('/');
+}
+
+function relinkTextureRecords(tree, textureName, relativeUrl) {
+  let updated = 0;
+  for (const texture of findTextures(tree)) {
+    const names = ['FileName', 'RelativeFilename'];
+    if (!names.some((name) => {
+      const value = stringChild(texture, name);
+      return value && baseName(value) === textureName;
+    })) continue;
+    for (const name of names) {
+      if (stringChild(texture, name) === null) continue;
+      setStringChild(texture, name, relativeUrl);
+      updated++;
+    }
+  }
+  return updated;
+}
+
 const [command, input, ...rest] = process.argv.slice(2);
 if (!command || !input) {
-  console.error('usage: fbx-texture.mjs extract <in.fbx> <out.jpg> | replace <in.fbx> <texture.jpg> <out.fbx> | roundtrip <in.fbx>');
+  console.error('usage: fbx-texture.mjs extract <in.fbx> <out.jpg> | replace <in.fbx> <texture.jpg> <out.fbx> | externalize <in.fbx> <out.fbx> <texture-dir> <url-prefix> [texture.jpg] [output-name] | relink <in.fbx> <out.fbx> <url-prefix> [texture-name] | inspect <in.fbx> | roundtrip <in.fbx>');
   process.exit(2);
 }
 const source = readFileSync(input);
@@ -179,10 +241,22 @@ if (command === 'roundtrip') {
   process.exit(same ? 0 : 1);
 }
 
-const videos = findVideos(tree)
-  .map((video) => ({ video, content: embeddedContent(video) }))
-  .filter((entry) => entry.content);
-if (videos.length === 0) throw new Error(`${input} has no embedded textures`);
+const allVideos = findVideos(tree).map((video) => ({ video, content: embeddedContent(video) }));
+if (command === 'inspect') {
+  if (allVideos.length === 0) console.log('  no Video records');
+  for (const entry of allVideos) {
+    const bytes = entry.content ? entry.content.span.end - entry.content.span.start - 5 : 0;
+    console.log(`  ${fileName(entry.video)}: ${bytes > 0 ? `${bytes} bytes embedded` : 'external'}`);
+  }
+  for (const texture of findTextures(tree)) {
+    const textureFile = stringChild(texture, 'RelativeFilename') ?? stringChild(texture, 'FileName');
+    if (textureFile) console.log(`  Texture: ${textureFile}`);
+  }
+  process.exit(0);
+}
+
+const videos = allVideos.filter((entry) => entry.content);
+if (videos.length === 0 && command !== 'relink') throw new Error(`${input} has no embedded textures`);
 
 if (command === 'extract') {
   const [output] = rest;
@@ -200,6 +274,50 @@ if (command === 'extract') {
   writeFileSync(output, rebuilt);
   parse(rebuilt); // must still be a well-formed file
   console.log(`  ${output}: ${source.length} -> ${rebuilt.length} bytes, ${videos.length} texture(s) replaced with ${data.length}-byte ${texture}`);
+} else if (command === 'externalize') {
+  const [output, textureDirectory, urlPrefix, replacementTexture, outputName] = rest;
+  if (!output || !textureDirectory || urlPrefix === undefined) {
+    throw new Error('externalize requires <out.fbx> <texture-dir> <url-prefix> [texture.jpg]');
+  }
+  const replacement = replacementTexture ? readFileSync(replacementTexture) : null;
+  mkdirSync(textureDirectory, { recursive: true });
+  for (const { video, content } of videos) {
+    const previousName = baseFileName(video);
+    const name = outputName ?? previousName;
+    if (!name || name === '?') throw new Error('Embedded texture has no usable filename');
+    const data = replacement ?? content.node.props.subarray(content.span.start + 5, content.span.end);
+    writeFileSync(path.join(textureDirectory, name), data);
+    const relativeUrl = relativeTextureUrl(urlPrefix, name);
+    setStringChild(video, 'RelativeFilename', relativeUrl);
+    setStringChild(video, 'Filename', relativeUrl);
+    relinkTextureRecords(tree, previousName, relativeUrl);
+    replaceContent(content.node, content.span, Buffer.alloc(0));
+    console.log(`  ${name}: wrote ${data.length} bytes, URL ${relativeUrl}`);
+  }
+  const rebuilt = serialize(tree);
+  writeFileSync(output, rebuilt);
+  const reparsed = parse(rebuilt);
+  if (findVideos(reparsed).some((video) => embeddedContent(video))) {
+    throw new Error(`${output} still contains embedded texture data`);
+  }
+  console.log(`  ${output}: ${source.length} -> ${rebuilt.length} bytes, ${videos.length} texture(s) externalized`);
+} else if (command === 'relink') {
+  const [output, urlPrefix, textureName] = rest;
+  if (!output || urlPrefix === undefined) throw new Error('relink requires <out.fbx> <url-prefix>');
+  for (const { video } of allVideos) {
+    const previousName = baseFileName(video);
+    const name = textureName ?? previousName;
+    if (!name || name === '?') throw new Error('Texture has no usable filename');
+    const relativeUrl = relativeTextureUrl(urlPrefix, name);
+    setStringChild(video, 'RelativeFilename', relativeUrl);
+    setStringChild(video, 'Filename', relativeUrl);
+    const updated = relinkTextureRecords(tree, previousName, relativeUrl);
+    console.log(`  ${name}: URL ${relativeUrl}, ${updated} Texture fields updated`);
+  }
+  const rebuilt = serialize(tree);
+  writeFileSync(output, rebuilt);
+  parse(rebuilt);
+  console.log(`  wrote ${output}`);
 } else {
   throw new Error(`Unknown command "${command}"`);
 }

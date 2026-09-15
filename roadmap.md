@@ -48,11 +48,14 @@ Settled up front so later items don't have to be bolted on:
       drag-reorders self-contained scenes inside a session. The active shot appears as a solid
       blue card, autosaves, and receives its thumbnail when the user leaves it. New blank shots
       begin with the default character.
+- [x] **Shot reference images.** Drop an image onto a shot, adjust its viewport-overlay opacity
+      from the active card, and automatically hide the overlay when the camera leaves its saved
+      main angle. Reference image files live beside the other session data.
 
 ## Scene
 
 - [x] **Rendering modes.** Untextured (Lambert clay), Textured (Lambert with the models'
-      embedded textures), and progressive GPU path tracing via `three-gpu-pathtracer` that
+      external editable textures), and progressive GPU path tracing via `three-gpu-pathtracer` that
       converges while the scene is still and drops to a raster frame mid-drag. A
       scene-construction aid, not ComfyUI input.
 - [x] **Lighting.** Ambient color/intensity, add/remove directional lights (color, intensity,

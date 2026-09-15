@@ -1,6 +1,8 @@
 export interface ShotTrayEntry {
   id: string;
   thumbnail?: string;
+  referenceImage?: string;
+  referenceOpacity?: number;
 }
 
 export interface ShotTrayActions {
@@ -9,6 +11,8 @@ export interface ShotTrayActions {
   duplicate(id: string): Promise<void>;
   delete(id: string): Promise<void>;
   reorder(orderedIds: string[]): Promise<void>;
+  setReferenceImage(id: string, image: File): Promise<void>;
+  setReferenceOpacity(id: string, opacity: number): void;
 }
 
 interface PointerDrag {
@@ -68,21 +72,47 @@ export class ShotTray {
       card.setAttribute('role', 'button');
       card.setAttribute('aria-label', `Shot ${index + 1}`);
 
-      if (shot.id === this.activeId) {
-        const activeFill = document.createElement('div');
-        activeFill.className = 'shot-active-fill';
-        card.appendChild(activeFill);
-      } else if (shot.thumbnail) {
+      let referencePreview: HTMLImageElement | null = null;
+      const displayImage = shot.referenceImage ?? (shot.id === this.activeId ? undefined : shot.thumbnail);
+      if (displayImage) {
         const image = document.createElement('img');
-        image.src = shot.thumbnail;
+        image.className = shot.referenceImage ? 'shot-reference' : 'shot-thumbnail';
+        image.src = displayImage;
         image.alt = '';
         image.draggable = false;
+        if (shot.referenceImage) {
+          image.style.opacity = String(shot.referenceOpacity ?? 0.5);
+          referencePreview = image;
+        }
         image.addEventListener('error', () => {
-          image.replaceWith(this.placeholder());
+          image.replaceWith(shot.id === this.activeId ? this.activeFill() : this.placeholder());
         });
         card.appendChild(image);
+      } else if (shot.id === this.activeId) {
+        card.appendChild(this.activeFill());
       } else {
         card.appendChild(this.placeholder());
+      }
+
+      if (shot.id === this.activeId && shot.referenceImage) {
+        const opacityControl = document.createElement('label');
+        opacityControl.className = 'shot-opacity-control';
+        opacityControl.title = 'Reference image opacity';
+        const opacity = document.createElement('input');
+        opacity.type = 'range';
+        opacity.min = '0';
+        opacity.max = '1';
+        opacity.step = '0.01';
+        opacity.value = String(shot.referenceOpacity ?? 0.5);
+        opacity.setAttribute('aria-label', 'Reference image opacity');
+        opacity.addEventListener('pointerdown', (event) => event.stopPropagation());
+        opacity.addEventListener('click', (event) => event.stopPropagation());
+        opacity.addEventListener('input', () => {
+          if (referencePreview) referencePreview.style.opacity = String(opacity.valueAsNumber);
+          this.actions.setReferenceOpacity(shot.id, opacity.valueAsNumber);
+        });
+        opacityControl.appendChild(opacity);
+        card.appendChild(opacityControl);
       }
 
       const actions = document.createElement('div');
@@ -115,6 +145,32 @@ export class ShotTray {
       card.addEventListener('pointermove', this.movePointerDrag);
       card.addEventListener('pointerup', this.endPointerDrag);
       card.addEventListener('pointercancel', this.cancelPointerDrag);
+      card.addEventListener('dragenter', (event) => {
+        if (!this.hasImageFile(event.dataTransfer)) return;
+        event.preventDefault();
+        card.classList.add('reference-drop');
+      });
+      card.addEventListener('dragover', (event) => {
+        if (!this.hasImageFile(event.dataTransfer)) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+        card.classList.add('reference-drop');
+      });
+      card.addEventListener('dragleave', (event) => {
+        if (event.relatedTarget instanceof Node && card.contains(event.relatedTarget)) return;
+        card.classList.remove('reference-drop');
+      });
+      card.addEventListener('drop', (event) => {
+        card.classList.remove('reference-drop');
+        event.preventDefault();
+        event.stopPropagation();
+        const file = [...(event.dataTransfer?.files ?? [])].find((candidate) => this.isSupportedImage(candidate));
+        if (!file) {
+          this.onError(new Error('Reference image must be JPEG, PNG, GIF, or WebP'));
+          return;
+        }
+        void this.run(() => this.actions.setReferenceImage(shot.id, file));
+      });
       this.list.appendChild(card);
     }
     this.addButton.disabled = this.busy;
@@ -124,7 +180,7 @@ export class ShotTray {
     if (
       this.busy ||
       event.button !== 0 ||
-      (event.target as Element).closest('.shot-action')
+      (event.target as Element).closest('.shot-action, .shot-opacity-control')
     ) {
       return;
     }
@@ -323,6 +379,21 @@ export class ShotTray {
     const placeholder = document.createElement('div');
     placeholder.className = 'shot-placeholder';
     return placeholder;
+  }
+
+  private activeFill(): HTMLDivElement {
+    const fill = document.createElement('div');
+    fill.className = 'shot-active-fill';
+    return fill;
+  }
+
+  private hasImageFile(dataTransfer: DataTransfer | null): boolean {
+    return dataTransfer?.types.includes('Files') ?? false;
+  }
+
+  private isSupportedImage(file: File): boolean {
+    return ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'].includes(file.type.toLowerCase())
+      || /\.(?:jpe?g|png|gif|webp)$/i.test(file.name);
   }
 
   private iconButton(label: string, icon: 'duplicate' | 'delete'): HTMLButtonElement {

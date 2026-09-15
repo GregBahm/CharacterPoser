@@ -404,6 +404,15 @@ button.active {
   touch-action: none;
 }
 
+#reference-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
 #shot-tray {
   flex: 0 0 112px;
   display: flex;
@@ -466,6 +475,38 @@ button.active {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.shot-reference {
+  background: #11151b;
+  object-fit: contain !important;
+}
+
+.shot-card.reference-drop {
+  border-color: #8ec5ff;
+  box-shadow: 0 0 0 2px rgba(112, 167, 223, 0.55);
+}
+
+.shot-opacity-control {
+  position: absolute;
+  z-index: 2;
+  left: 7px;
+  right: 7px;
+  bottom: 5px;
+  height: 18px;
+  padding: 0 5px;
+  display: flex;
+  align-items: center;
+  border-radius: 9px;
+  background: rgba(20, 23, 30, 0.78);
+}
+
+.shot-opacity-control input {
+  width: 100%;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  accent-color: #70a7df;
 }
 
 .shot-active-fill {

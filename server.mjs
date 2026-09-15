@@ -10,11 +10,19 @@ const dataRoot = path.resolve(process.env.CHARACTER_POSER_DATA_DIR ?? path.join(
 const poseRoot = path.join(dataRoot, 'poses');
 const sessionRoot = path.join(dataRoot, 'sessions');
 const thumbnailRoot = path.join(dataRoot, 'shot-thumbnails');
+const referenceImageRoot = path.join(dataRoot, 'reference-images');
 const host = '127.0.0.1';
 const port = Number(process.env.PORT ?? 5173);
 // Storyboards can contain many complete scene snapshots.
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_THUMBNAIL_BYTES = 200 * 1024;
+const MAX_REFERENCE_IMAGE_BYTES = 25 * 1024 * 1024;
+const REFERENCE_IMAGE_TYPES = new Map([
+  ['image/jpeg', { extension: 'jpg', signature: (body) => body.length >= 3 && body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff }],
+  ['image/png', { extension: 'png', signature: (body) => body.length >= 8 && body.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) }],
+  ['image/gif', { extension: 'gif', signature: (body) => body.length >= 6 && ['GIF87a', 'GIF89a'].includes(body.subarray(0, 6).toString('ascii')) }],
+  ['image/webp', { extension: 'webp', signature: (body) => body.length >= 12 && body.subarray(0, 4).toString('ascii') === 'RIFF' && body.subarray(8, 12).toString('ascii') === 'WEBP' }],
+]);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const POSE_SCOPES = new Set(['body', 'leftHand', 'rightHand', 'face']);
 const allowedHosts = new Set([`${host}:${port}`, `localhost:${port}`]);
@@ -23,6 +31,7 @@ await Promise.all([
   ...[...POSE_SCOPES].map((scope) => mkdir(path.join(poseRoot, scope), { recursive: true })),
   mkdir(sessionRoot, { recursive: true }),
   mkdir(thumbnailRoot, { recursive: true }),
+  mkdir(referenceImageRoot, { recursive: true }),
 ]);
 
 function sendJson(response, status, value) {
@@ -361,6 +370,65 @@ async function handleApi(request, response, url) {
     }
     if (request.method === 'DELETE') {
       await rm(filePath, { force: true });
+      sendJson(response, 200, { ok: true });
+      return true;
+    }
+    sendJson(response, 405, { error: 'Method not allowed' });
+    return true;
+  }
+
+  const referenceImageMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/shots\/([^/]+)\/reference-image$/);
+  if (referenceImageMatch) {
+    const sessionId = requireId(decodePathSegment(referenceImageMatch[1]), 'session id');
+    const shotId = requireId(decodePathSegment(referenceImageMatch[2]), 'shot id');
+    const directory = path.join(referenceImageRoot, sessionId);
+    const candidates = [...REFERENCE_IMAGE_TYPES.entries()].map(([mediaType, { extension }]) => ({
+      mediaType,
+      filePath: path.join(directory, `${shotId}.${extension}`),
+    }));
+    if (request.method === 'GET') {
+      for (const candidate of candidates) {
+        try {
+          const body = await readFile(candidate.filePath);
+          response.writeHead(200, {
+            'Content-Type': candidate.mediaType,
+            'Content-Length': body.length,
+            'Cache-Control': 'public, max-age=31536000, immutable',
+          });
+          response.end(body);
+          return true;
+        } catch (cause) {
+          if (!cause || typeof cause !== 'object' || cause.code !== 'ENOENT') throw cause;
+        }
+      }
+      sendJson(response, 404, { error: 'Shot reference image not found' });
+      return true;
+    }
+    if (request.method === 'PUT') {
+      const mediaType = (request.headers['content-type'] ?? '').split(';', 1)[0].trim().toLowerCase();
+      const imageType = REFERENCE_IMAGE_TYPES.get(mediaType);
+      if (!imageType) {
+        const error = new Error('Reference image must be JPEG, PNG, GIF, or WebP');
+        error.status = 415;
+        throw error;
+      }
+      const body = await readBinaryBody(request, MAX_REFERENCE_IMAGE_BYTES);
+      if (!imageType.signature(body)) {
+        const error = new Error(`Reference image does not contain valid ${mediaType} data`);
+        error.status = 400;
+        throw error;
+      }
+      await mkdir(directory, { recursive: true });
+      const filePath = path.join(directory, `${shotId}.${imageType.extension}`);
+      await writeBinaryAtomic(filePath, body);
+      await Promise.all(candidates
+        .filter((candidate) => candidate.filePath !== filePath)
+        .map((candidate) => rm(candidate.filePath, { force: true })));
+      sendJson(response, 200, { ok: true });
+      return true;
+    }
+    if (request.method === 'DELETE') {
+      await Promise.all(candidates.map((candidate) => rm(candidate.filePath, { force: true })));
       sendJson(response, 200, { ok: true });
       return true;
     }

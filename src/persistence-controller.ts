@@ -32,6 +32,8 @@ interface PersistenceContext {
   setLighting(lighting: LightingSettings): void;
   mainCamera(): CameraPose | null;
   setMainCamera(pose: CameraPose | null): void;
+  setReferenceImage(source: string | null, opacity: number): void;
+  setReferenceOpacity(opacity: number): void;
   applyPose(): void;
   applyPoseEdit(edit: () => void): void;
   clearPoseHistory(): void;
@@ -58,6 +60,7 @@ export class PersistenceController {
   private saveInFlight: Promise<void> | null = null;
   private saveTimer: number | null = null;
   private thumbnailVersions = new Map<string, string>();
+  private referenceImageVersions = new Map<string, string>();
   private operationTail: Promise<void> = Promise.resolve();
   private poseListToken = 0;
 
@@ -74,6 +77,8 @@ export class PersistenceController {
       duplicate: (id) => this.enqueue(() => this.duplicateShot(id)),
       delete: (id) => this.enqueue(() => this.deleteShot(id)),
       reorder: (orderedIds) => this.enqueue(() => this.reorderShots(orderedIds)),
+      setReferenceImage: (id, image) => this.enqueue(() => this.setReferenceImage(id, image)),
+      setReferenceOpacity: (id, opacity) => this.setReferenceOpacity(id, opacity),
     }, (cause) => this.ui.setStatus(cause instanceof Error ? cause.message : String(cause), true));
     this.ui.setScope(context.state.activeView);
     window.addEventListener('pagehide', () => this.flushOnPageHide());
@@ -190,6 +195,7 @@ export class PersistenceController {
     const previousShotId = this.activeShotId;
     const previousShots = this.shots;
     const previousThumbnailVersions = this.thumbnailVersions;
+    const previousReferenceImageVersions = this.referenceImageVersions;
     this.suppressAutosave = true;
     try {
       if (reset) await this.context.resetScene();
@@ -198,6 +204,8 @@ export class PersistenceController {
       this.activeShotId = createDocumentId('shot');
       this.shots = [this.captureShot(this.activeShotId)];
       this.thumbnailVersions = new Map();
+      this.referenceImageVersions = new Map();
+      this.context.setReferenceImage(null, 0.5);
       await this.client.saveSession(this.captureSession(now, false));
       this.context.clearPoseHistory();
     } catch (cause) {
@@ -205,6 +213,7 @@ export class PersistenceController {
       this.shots = previousDocument?.shots ?? previousShots;
       this.activeShotId = previousDocument?.activeShotId ?? previousShotId;
       this.thumbnailVersions = previousThumbnailVersions;
+      this.referenceImageVersions = previousReferenceImageVersions;
       if (previousDocument) {
         await this.applyShotState(this.activeShot());
       }
@@ -226,6 +235,7 @@ export class PersistenceController {
     const previousShotId = this.activeShotId;
     const previousShot = previousShotId ? this.activeShot() : null;
     const previousThumbnailVersions = this.thumbnailVersions;
+    const previousReferenceImageVersions = this.referenceImageVersions;
     const document = await this.client.loadSession(id);
     for (const shot of document.shots) {
       for (const character of shot.characters) {
@@ -246,6 +256,7 @@ export class PersistenceController {
       this.shots = document.shots;
       this.activeShotId = document.activeShotId;
       this.thumbnailVersions = new Map(document.shots.map((shot) => [shot.id, document.updatedAt]));
+      this.referenceImageVersions = new Map(document.shots.map((shot) => [shot.id, document.updatedAt]));
       await this.applyShotState(this.activeShot());
       this.context.clearPoseHistory();
     } catch (cause) {
@@ -253,6 +264,7 @@ export class PersistenceController {
       this.shots = previousShots;
       this.activeShotId = previousShotId;
       this.thumbnailVersions = previousThumbnailVersions;
+      this.referenceImageVersions = previousReferenceImageVersions;
       if (previousShot) await this.applyShotState(previousShot);
       throw cause;
     } finally {
@@ -310,6 +322,7 @@ export class PersistenceController {
       const id = createDocumentId('shot');
       this.activeShotId = id;
       this.shots.push(this.captureShot(id));
+      this.context.setReferenceImage(null, 0.5);
       this.context.clearPoseHistory();
     } catch (cause) {
       this.activeShotId = previousId;
@@ -330,6 +343,16 @@ export class PersistenceController {
     const previousShot = this.activeShot();
     const duplicate = structuredClone(this.shots[sourceIndex]);
     duplicate.id = createDocumentId('shot');
+    const copiedReferenceImage = duplicate.referenceImage !== undefined;
+    if (copiedReferenceImage) {
+      await this.client.copyShotReferenceImage(
+        this.current!.id,
+        id,
+        duplicate.id,
+        this.referenceImageVersions.get(id) ?? this.current!.updatedAt,
+      );
+      this.referenceImageVersions.set(duplicate.id, Date.now().toString(36));
+    }
     this.shots.splice(sourceIndex + 1, 0, duplicate);
     this.suppressAutosave = true;
     try {
@@ -339,7 +362,19 @@ export class PersistenceController {
     } catch (cause) {
       this.shots.splice(this.shots.indexOf(duplicate), 1);
       this.activeShotId = previousId;
-      await this.applyShotState(previousShot);
+      this.referenceImageVersions.delete(duplicate.id);
+      const cleanup = copiedReferenceImage
+        ? this.client.deleteShotReferenceImage(this.current!.id, duplicate.id)
+        : Promise.resolve();
+      try {
+        await Promise.all([this.applyShotState(previousShot), cleanup]);
+      } catch (rollbackCause) {
+        throw new Error(
+          `Could not duplicate the shot or fully restore its previous state: `
+          + `${cause instanceof Error ? cause.message : String(cause)}; `
+          + `${rollbackCause instanceof Error ? rollbackCause.message : String(rollbackCause)}`,
+        );
+      }
       throw cause;
     } finally {
       this.suppressAutosave = false;
@@ -375,13 +410,17 @@ export class PersistenceController {
     }
     await this.saveSessionNow();
     this.thumbnailVersions.delete(id);
+    this.referenceImageVersions.delete(id);
     this.refreshShotTray();
     try {
-      await this.client.deleteShotThumbnail(this.current!.id, id);
+      await Promise.all([
+        this.client.deleteShotThumbnail(this.current!.id, id),
+        this.client.deleteShotReferenceImage(this.current!.id, id),
+      ]);
       this.ui.setStatus('Deleted shot.');
     } catch (cause) {
       this.ui.setStatus(
-        `Deleted shot, but thumbnail cleanup failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+        `Deleted shot, but image cleanup failed: ${cause instanceof Error ? cause.message : String(cause)}`,
         true,
       );
     }
@@ -435,9 +474,46 @@ export class PersistenceController {
           shot.id,
           this.thumbnailVersions.get(shot.id) ?? this.current!.updatedAt,
         ),
+        ...(shot.referenceImage ? {
+          referenceImage: this.referenceImageUrl(shot.id),
+          referenceOpacity: shot.referenceImage.opacity,
+        } : {}),
       })),
       this.activeShotId,
     );
+  }
+
+  private referenceImageUrl(shotId: string): string {
+    return this.client.shotReferenceImageUrl(
+      this.current!.id,
+      shotId,
+      this.referenceImageVersions.get(shotId) ?? this.current!.updatedAt,
+    );
+  }
+
+  private async setReferenceImage(id: string, image: File) {
+    if (!this.current) throw new Error('No active session');
+    const shot = this.shots.find((candidate) => candidate.id === id);
+    if (!shot) throw new Error('Shot not found');
+    await this.flushBeforeSessionChange(false);
+    const mediaType = referenceImageMediaType(image);
+    const upload = image.type === mediaType ? image : new Blob([image], { type: mediaType });
+    await this.client.saveShotReferenceImage(this.current.id, id, upload);
+    shot.referenceImage = { opacity: shot.referenceImage?.opacity ?? 0.5 };
+    this.referenceImageVersions.set(id, Date.now().toString(36));
+    if (id === this.activeShotId) {
+      this.context.setReferenceImage(this.referenceImageUrl(id), shot.referenceImage.opacity);
+    }
+    await this.saveSessionNow(false);
+    this.ui.setStatus('Set reference image.');
+  }
+
+  private setReferenceOpacity(id: string, opacity: number) {
+    const shot = this.shots.find((candidate) => candidate.id === id);
+    if (!shot?.referenceImage) return;
+    shot.referenceImage.opacity = Math.min(1, Math.max(0, opacity));
+    if (id === this.activeShotId) this.context.setReferenceOpacity(shot.referenceImage.opacity);
+    this.notifySceneChanged();
   }
 
   private async saveActiveThumbnail(expectedShotId: string | null) {
@@ -473,6 +549,7 @@ export class PersistenceController {
     const resolution = this.context.resolution();
     const activeCharacterId = this.context.scene.active?.id;
     const mainCamera = this.context.mainCamera();
+    const referenceImage = this.shots.find((shot) => shot.id === id)?.referenceImage;
     return {
       id,
       characters: this.context.scene.characters.map((character) => ({
@@ -483,6 +560,7 @@ export class PersistenceController {
       ...(activeCharacterId ? { activeCharacterId } : {}),
       lighting: cloneLighting(this.context.lighting()),
       ...(mainCamera ? { mainCamera } : {}),
+      ...(referenceImage ? { referenceImage: { ...referenceImage } } : {}),
       cameras: [{
         id: 'free',
         position: this.context.camera.position.toArray(),
@@ -576,6 +654,10 @@ export class PersistenceController {
     if (shot.activeCharacterId) this.context.state.setActiveCharacter(shot.activeCharacterId);
     this.context.setLighting(shot.lighting ?? defaultLighting());
     this.context.setMainCamera(shot.mainCamera ?? null);
+    this.context.setReferenceImage(
+      shot.referenceImage ? this.referenceImageUrl(shot.id) : null,
+      shot.referenceImage?.opacity ?? 0.5,
+    );
     const camera = shot.cameras[0];
     this.context.camera.position.fromArray(camera.position);
     this.context.cameraTarget.fromArray(camera.target);
@@ -599,4 +681,14 @@ export class PersistenceController {
       updatedAt,
     );
   }
+}
+
+function referenceImageMediaType(file: File): string {
+  const declared = file.type.toLowerCase();
+  if (declared === 'image/jpeg' || declared === 'image/jpg') return 'image/jpeg';
+  if (['image/png', 'image/gif', 'image/webp'].includes(declared)) return declared;
+  const extension = file.name.match(/\.([^.]+)$/)?.[1].toLowerCase();
+  if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg';
+  if (extension === 'png' || extension === 'gif' || extension === 'webp') return `image/${extension}`;
+  throw new Error('Reference image must be JPEG, PNG, GIF, or WebP');
 }
